@@ -53,27 +53,57 @@ impl PolicyEngine {
                     PolicyDecision::Deny("Browser access not granted".into())
                 }
             }
-            "network:outbound" => match &req.permissions.network {
-                NetworkPolicy::Full => PolicyDecision::Allow,
-                NetworkPolicy::Allowlist(domains) => {
-                    if domains.iter().any(|d| req.resource.contains(d)) {
-                        PolicyDecision::Allow
-                    } else {
-                        PolicyDecision::Deny("Domain not in allowlist".into())
+            "network:outbound" => {
+                let host = host_of(&req.resource);
+                match &req.permissions.network {
+                    NetworkPolicy::Full => PolicyDecision::Allow,
+                    NetworkPolicy::Allowlist(domains) => {
+                        if domains.iter().any(|d| host_matches(&host, d)) {
+                            PolicyDecision::Allow
+                        } else {
+                            PolicyDecision::Deny("Domain not in allowlist".into())
+                        }
                     }
-                }
-                NetworkPolicy::LocalhostOnly => {
-                    if req.resource.contains("localhost") || req.resource.contains("127.0.0.1") {
-                        PolicyDecision::Allow
-                    } else {
-                        PolicyDecision::Deny("Only localhost allowed".into())
+                    NetworkPolicy::LocalhostOnly => {
+                        if host == "localhost" || host == "127.0.0.1" {
+                            PolicyDecision::Allow
+                        } else {
+                            PolicyDecision::Deny("Only localhost allowed".into())
+                        }
                     }
+                    NetworkPolicy::Offline => PolicyDecision::Deny("Network is offline".into()),
                 }
-                NetworkPolicy::Offline => PolicyDecision::Deny("Network is offline".into()),
-            },
+            }
             _ => PolicyDecision::Deny("Unknown action".into()),
         }
     }
+}
+
+/// Extract the lowercased hostname from a URL-like string (mirrors
+/// `network_control`'s helper, kept local to avoid a cross-crate dependency).
+fn host_of(destination: &str) -> String {
+    let after_scheme = destination
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(destination);
+    let authority = after_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(after_scheme);
+    let host = authority
+        .rsplit_once('@')
+        .map(|(_, rest)| rest)
+        .unwrap_or(authority);
+    let host = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
+    host.to_lowercase()
+}
+
+fn host_matches(host: &str, allowed: &str) -> bool {
+    let allowed = allowed.trim().to_lowercase();
+    if allowed.is_empty() {
+        return false;
+    }
+    host == allowed || host.ends_with(&format!(".{allowed}"))
 }
 
 #[cfg(test)]

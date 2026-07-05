@@ -5,7 +5,6 @@ use axum::{
     Json, Router,
 };
 use std::sync::Arc;
-use tower_http::cors::CorsLayer;
 use tracing::info;
 
 use sandbox_core::SandboxManager;
@@ -43,10 +42,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/sessions/:id", get(get_session))
         .route("/sessions/:id/status", post(update_session_status))
         .route("/ws", get(ws_handler))
-        .layer(CorsLayer::permissive())
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
+    // Bind to loopback by default — the daemon must not be reachable from the
+    // network. Override with AGENTICBOX_BIND_ADDR for trusted deployments.
+    let bind_addr =
+        std::env::var("AGENTICBOX_BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
+    let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     info!("Daemon listening on {}", listener.local_addr()?);
     axum::serve(listener, app).await?;
     Ok(())

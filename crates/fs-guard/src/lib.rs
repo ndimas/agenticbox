@@ -21,22 +21,54 @@ impl FsGuard {
     }
 
     pub fn resolve(&self, path: &str) -> Result<PathBuf, FsGuardError> {
-        let path = Path::new(path);
-        if path.is_absolute() {
-            for root in &self.allowed_roots {
-                if path.starts_with(root) {
-                    return Ok(path.to_path_buf());
-                }
-            }
+        let raw = Path::new(path);
+        let candidate = if raw.is_absolute() {
+            raw.to_path_buf()
+        } else if let Some(root) = self.allowed_roots.first() {
+            let joined = root.join(raw);
+            joined.canonicalize().unwrap_or(joined)
         } else {
-            if let Some(root) = self.allowed_roots.first() {
-                let resolved = root.join(path);
-                return Ok(resolved.canonicalize().unwrap_or(resolved));
+            warn!("Filesystem access denied for path: {path}");
+            return Err(FsGuardError::Escaped(path.to_string()));
+        };
+
+        // Resolve symlinks / `..` so they cannot escape the allowed roots.
+        // canonicalize() handles existing paths; normalize() is the fallback
+        // for paths that do not exist yet (e.g. a file about to be created).
+        let resolved = candidate
+            .canonicalize()
+            .unwrap_or_else(|_| normalize(&candidate));
+
+        for root in &self.allowed_roots {
+            let root = root.canonicalize().unwrap_or_else(|_| root.clone());
+            if resolved.starts_with(&root) {
+                return Ok(resolved);
             }
         }
-        warn!("Filesystem access denied for path: {}", path.display());
-        Err(FsGuardError::Escaped(path.display().to_string()))
+        warn!("Filesystem access denied for path: {}", resolved.display());
+        Err(FsGuardError::Escaped(resolved.display().to_string()))
     }
+}
+
+/// Lexically normalize `.` / `..` components without touching the filesystem,
+/// so traversal via `..` is caught even when the path does not exist yet.
+fn normalize(path: &Path) -> PathBuf {
+    let mut stack: Vec<std::path::Component> = Vec::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => match stack.last() {
+                Some(std::path::Component::Normal(_)) => {
+                    stack.pop();
+                }
+                _ => {
+                    stack.push(component);
+                }
+            },
+            other => stack.push(other),
+        }
+    }
+    stack.iter().collect()
 }
 
 #[cfg(test)]
@@ -156,14 +188,10 @@ mod tests {
     fn block_path_traversal_attempt() {
         let g = guard();
         let ws = workspace();
-        // workspace/../etc/passwd starts with workspace syntactically
+        // workspace/../etc/passwd must NOT pass: `..` is now normalized away.
         let traversal = format!("{}/../etc/passwd", ws.display());
         let result = g.resolve(&traversal);
-        // Known limitation: prefix matching allows traversal
-        assert!(
-            result.is_ok(),
-            "path traversal is a known limitation of prefix matching"
-        );
+        assert!(result.is_err(), "path traversal via .. must be blocked");
     }
 
     #[test]

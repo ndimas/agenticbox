@@ -14,10 +14,11 @@ impl NetworkGuard {
 
     pub fn check(&self, destination: &str) -> Result<(), NetworkError> {
         info!("Checking network policy for {}", destination);
+        let host = host_of(destination);
         match &self.policy {
             NetworkPolicy::Full => Ok(()),
             NetworkPolicy::LocalhostOnly => {
-                if destination.contains("localhost") || destination.contains("127.0.0.1") {
+                if host == "localhost" || host == "127.0.0.1" {
                     Ok(())
                 } else {
                     Err(NetworkError::Blocked(format!(
@@ -27,7 +28,7 @@ impl NetworkGuard {
                 }
             }
             NetworkPolicy::Allowlist(domains) => {
-                if domains.iter().any(|d| destination.contains(d)) {
+                if domains.iter().any(|d| host_matches(&host, d)) {
                     Ok(())
                 } else {
                     Err(NetworkError::Blocked(format!(
@@ -39,6 +40,35 @@ impl NetworkGuard {
             NetworkPolicy::Offline => Err(NetworkError::Blocked("Offline mode".into())),
         }
     }
+}
+
+/// Extract the lowercased hostname from a URL-like string, stripping scheme,
+/// path, query, fragment, userinfo, and port.
+fn host_of(destination: &str) -> String {
+    let after_scheme = destination
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(destination);
+    let authority = after_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(after_scheme);
+    let host = authority
+        .rsplit_once('@')
+        .map(|(_, rest)| rest)
+        .unwrap_or(authority);
+    // Drop the port (hostname / IPv4 case).
+    let host = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
+    host.to_lowercase()
+}
+
+/// `host` equals `allowed`, or is a subdomain of it (`host` ends with `.allowed`).
+fn host_matches(host: &str, allowed: &str) -> bool {
+    let allowed = allowed.trim().to_lowercase();
+    if allowed.is_empty() {
+        return false;
+    }
+    host == allowed || host.ends_with(&format!(".{allowed}"))
 }
 
 #[derive(Debug, thiserror::Error)]
