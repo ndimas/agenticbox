@@ -64,7 +64,7 @@ async fn create_session(
 ) -> Result<Json<shared_types::Session>, axum::http::StatusCode> {
     let session = state
         .session_manager
-        .create(req.name, req.model_config, req.permissions)
+        .create(req.name, req.model_config, req.permissions, req.identity_id)
         .await
         .map_err(|e| {
             tracing::error!("Failed to create session: {:?}", e);

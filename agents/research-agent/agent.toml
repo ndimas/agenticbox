@@ -1,0 +1,97 @@
+# Research Agent — governed web research with browser automation + exfiltration detection
+# Run: agenticbox run research-agent
+# Docs: https://github.com/morpheus-sh/agenticbox/blob/main/docs/agents.md
+
+name = "research-agent"
+description = "Research Agent — web research with governed browser automation, citation gathering, and exfiltration detection"
+
+command = "builtin"
+
+[metadata]
+version = "0.1.0"
+author = "AgenticBox"
+license = "MIT"
+homepage = "https://github.com/morpheus-sh/agenticbox/tree/main/agents/research-agent"
+tags = ["research", "browser", "web", "intelligence", "osint"]
+category = "research"
+min_agenticbox_version = "0.1.0"
+
+[model]
+provider = "openrouter"
+model = "anthropic/claude-sonnet-4"
+api_key_env = "OPENROUTER_API_KEY"
+
+[permissions]
+terminal = true
+filesystem = "readwrite"
+browser = true               # Browser automation enabled — visits websites, scrapes content
+network = "allowlist"         # Browsing is governed by domain allowlist
+domains = [
+    "api.openai.com",         # LLM provider
+    "openrouter.ai",          # LLM provider
+    "wikipedia.org",          # Research source
+    "github.com",             # Code/documentation research
+    "news.ycombinator.com",   # Tech news / community research
+    "arxiv.org",              # Academic papers
+    "docs.python.org",        # Documentation
+    "developer.mozilla.org",  # Web documentation
+    "stackoverflow.com",      # Q&A research
+    "medium.com",             # Technical articles
+]
+
+[execution]
+mode = "builtin"
+max_iterations = 25
+
+[prompt]
+system = """You are an expert research agent with browser automation capabilities. Your job is to conduct thorough web research on the assigned topic and produce a comprehensive, well-cited research report.
+
+You have access to:
+1. **Browser** (`browser(true)`) — Navigate to web pages, read content, extract information. Use this to visit research sources.
+2. **Terminal** (`exec(...)`) — Run commands to process data, curl APIs, manipulate files.
+3. **Filesystem** (`read_file()`, `write_file()`) — Read workspace files and write your research report.
+
+YOUR RESEARCH PROCESS:
+1. Read the research topic from the workspace
+2. Use the browser to visit relevant sources (Wikipedia, docs, articles, papers)
+3. Take notes by writing to a scratch file
+4. Cross-reference information from multiple sources
+5. Write a final research report to research_report.md using the write_file() tool
+
+IMPORTANT RULES:
+- Always verify information from at least 2 independent sources
+- Cite all sources with URLs
+- Do NOT attempt to access domains outside your allowlist — they will be blocked
+- Do NOT attempt to exfiltrate data to external services
+- Do NOT attempt to bypass filesystem restrictions
+- If a source is blocked, note it and find an alternative
+
+Use the write_file tool to save your research report. Do NOT use exec/echo/printf to write the report. Use write_file(path="research_report.md", content="...").
+"""
+
+task = """Research the impact of AI coding assistants on software engineering productivity.
+
+Read the research brief in topic.txt, then use your browser to gather information from at least 3 sources (Wikipedia, GitHub blog, and ArXiv or other documentation sites). Write a comprehensive research report to research_report.md.
+
+Your report should include:
+- How AI coding assistants work (the technology)
+- Key studies on productivity gains (with citations to actual papers/sources)
+- Common criticisms and limitations
+- Security implications (supply chain, code quality)
+- The competitive landscape (GitHub Copilot, Cursor, Claude Code, etc.)
+
+Use the write_file tool to save your report. Do NOT use exec/echo/printf."""
+
+[workspace]
+files = [
+  { source = "samples/topic.txt", dest = "topic.txt" }
+]
+
+# Container image — used when execution.mode = "container" (for real Docker isolation)
+[image]
+base = "python:3.12-slim"
+setup = [
+    "apt-get update && apt-get install -y --no-install-recommends python3 python3-pip curl git ca-certificates",
+    "pip3 install --break-system-packages playwright",
+    "playwright install chromium"
+]

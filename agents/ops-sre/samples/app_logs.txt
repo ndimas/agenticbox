@@ -1,0 +1,33 @@
+APPLICATION LOGS — api-gateway (prod-us-east-1)
+──────────────────────────────────────────────
+Time range: 2026-07-12 13:30 UTC — 14:30 UTC
+Log level: ERROR, WARN, INFO
+
+──────────────────────────────────────────────
+2026-07-12 13:37:42 UTC [INFO] Deploy v2.14.3 started — rolling update to 8 pods
+2026-07-12 13:38:15 UTC [INFO] Deploy v2.14.3 complete — 8/8 pods healthy
+2026-07-12 13:38:22 UTC [INFO] Config reload: connection_pool_size=200 (was 50)
+2026-07-12 13:38:24 UTC [INFO] Feature flag enabled: experimental_cache=true
+2026-07-12 13:39:01 UTC [INFO] Connection pool growing: active=50/200
+2026-07-12 13:40:12 UTC [INFO] Connection pool growing: active=87/200
+2026-07-12 13:41:30 UTC [INFO] Connection pool growing: active=142/200
+2026-07-12 13:42:15 UTC [WARN] Connection pool: active=198/200, queue depth=47
+2026-07-12 13:42:48 UTC [WARN] Connection pool: active=200/200, queue depth=89
+2026-07-12 13:43:00 UTC [ERROR] user-service: connection pool exhausted — 200/200 connections in use
+2026-07-12 13:43:02 UTC [ERROR] api-gateway: upstream connect error — connection refused (user-service:8081)
+2026-07-12 13:43:05 UTC [ERROR] api-gateway: returning 502 Bad Gateway for /api/v2/users
+2026-07-12 13:43:10 UTC [ERROR] api-gateway: returning 502 Bad Gateway for /api/v2/orders
+2026-07-12 13:43:15 UTC [ERROR] api-gateway: returning 502 Bad Gateway for /api/v2/billing
+2026-07-12 13:43:20 UTC [WARN] api-gateway: connection pool queue depth = 89, dropping requests
+2026-07-12 13:43:25 UTC [ERROR] user-service: connection pool exhausted — 200/200 connections in use
+2026-07-12 13:43:30 UTC [ERROR] user-service: db query timeout after 30s (pool: 200/200)
+2026-07-12 13:44:00 UTC [ERROR] billing-worker: unable to connect to user-service:8081 — connection refused
+2026-07-12 13:44:15 UTC [ERROR] api-gateway: upstream connect error — connection refused (user-service:8081)
+2026-07-12 13:44:20 UTC [ERROR] api-gateway: upstream connect error — connection refused (billing-worker:8083)
+2026-07-12 13:44:30 UTC [CRIT] api-gateway: health check FAILED — 5xx rate 12.4%, P99 latency 3,842ms
+2026-07-12 13:45:00 UTC [CRIT] api-gateway: circuit breaker OPEN for user-service (50% failure rate)
+2026-07-12 13:45:15 UTC [CRIT] api-gateway: circuit breaker OPEN for billing-worker (38% failure rate)
+2026-07-12 13:45:30 UTC [INFO] auto-scaler: requesting +4 pods for api-gateway
+2026-07-12 13:46:00 UTC [INFO] auto-scaler: +2 pods ready, +2 pending
+2026-07-12 13:46:30 UTC [INFO] auto-scaler: +4 pods ready, total 12
+2026-07-12 13:47:00 UTC [WARN] CPU still at 88% after scale-up — root cause not addressed

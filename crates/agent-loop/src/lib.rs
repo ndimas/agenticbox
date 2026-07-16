@@ -10,6 +10,38 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 // ─── Public types ─────────────────────────────────────────────
 
+/// Compute the trust score delta from a session's decision history.
+///
+/// Deterministic, no LLM. Scoring rules:
+///   Clean session end (0 denies)      → +1
+///   Each `fs:write` Deny               → -2
+///   Each `network:outbound` Deny       → -5 (exfiltration attempt)
+///   Each `terminal:exec` Deny          → -3
+///   Each other Deny                    → -1
+///
+/// The delta is clamped to a minimum of -20 per session (one bad session
+/// should not irreversibly tank an otherwise good identity).
+pub fn compute_trust_delta(history: &[DecisionLog]) -> i32 {
+    let denies: Vec<&DecisionLog> = history.iter().filter(|d| !d.allowed).collect();
+
+    if denies.is_empty() {
+        return 1; // clean session
+    }
+
+    let mut delta: i32 = 0;
+    for d in &denies {
+        let penalty = match d.tool.as_str() {
+            "network:outbound" | "http_request" => -5,
+            "terminal:exec" | "exec" => -3,
+            "fs:write" | "write_file" => -2,
+            _ => -1,
+        };
+        delta += penalty;
+    }
+
+    delta.max(-20) // clamp
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentLoopConfig {
     pub api_base: String,
@@ -546,4 +578,110 @@ pub async fn run_agent_loop(config: AgentLoopConfig) -> Result<AgentLoopResult> 
         history,
         final_message,
     })
+}
+
+// ─── Tests ────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_decision(allowed: bool, tool: &str) -> DecisionLog {
+        DecisionLog {
+            timestamp: "2025-01-01T00:00:00Z".into(),
+            tool: tool.into(),
+            args: "test".into(),
+            allowed,
+            reason: if allowed { "allowed" } else { "blocked" }.into(),
+            agent_message: None,
+        }
+    }
+
+    #[test]
+    fn clean_session_returns_plus_one() {
+        let history = vec![
+            make_decision(true, "fs:read"),
+            make_decision(true, "network:outbound"),
+            make_decision(true, "terminal:exec"),
+        ];
+        assert_eq!(compute_trust_delta(&history), 1);
+    }
+
+    #[test]
+    fn empty_history_returns_plus_one() {
+        let history: Vec<DecisionLog> = vec![];
+        assert_eq!(compute_trust_delta(&history), 1);
+    }
+
+    #[test]
+    fn single_network_deny_is_minus_five() {
+        let history = vec![make_decision(false, "network:outbound")];
+        assert_eq!(compute_trust_delta(&history), -5);
+    }
+
+    #[test]
+    fn single_fs_write_deny_is_minus_two() {
+        let history = vec![make_decision(false, "fs:write")];
+        assert_eq!(compute_trust_delta(&history), -2);
+    }
+
+    #[test]
+    fn single_terminal_deny_is_minus_three() {
+        let history = vec![make_decision(false, "terminal:exec")];
+        assert_eq!(compute_trust_delta(&history), -3);
+    }
+
+    #[test]
+    fn unknown_tool_deny_is_minus_one() {
+        let history = vec![make_decision(false, "browser:navigate")];
+        assert_eq!(compute_trust_delta(&history), -1);
+    }
+
+    #[test]
+    fn http_request_counts_as_network() {
+        let history = vec![make_decision(false, "http_request")];
+        assert_eq!(compute_trust_delta(&history), -5);
+    }
+
+    #[test]
+    fn exec_counts_as_terminal() {
+        let history = vec![make_decision(false, "exec")];
+        assert_eq!(compute_trust_delta(&history), -3);
+    }
+
+    #[test]
+    fn write_file_counts_as_fs_write() {
+        let history = vec![make_decision(false, "write_file")];
+        assert_eq!(compute_trust_delta(&history), -2);
+    }
+
+    #[test]
+    fn multiple_denies_accumulate() {
+        let history = vec![
+            make_decision(false, "network:outbound"), // -5
+            make_decision(false, "fs:write"),         // -2
+            make_decision(false, "terminal:exec"),    // -3
+            make_decision(false, "browser:navigate"), // -1
+        ];
+        assert_eq!(compute_trust_delta(&history), -11);
+    }
+
+    #[test]
+    fn clamp_at_minus_twenty() {
+        let history: Vec<DecisionLog> = (0..10)
+            .map(|_| make_decision(false, "network:outbound"))
+            .collect(); // 10 * -5 = -50, clamped to -20
+        assert_eq!(compute_trust_delta(&history), -20);
+    }
+
+    #[test]
+    fn mixed_allowed_and_denied() {
+        let history = vec![
+            make_decision(true, "fs:read"),
+            make_decision(false, "network:outbound"), // -5
+            make_decision(true, "terminal:exec"),
+            make_decision(false, "fs:write"), // -2
+        ];
+        assert_eq!(compute_trust_delta(&history), -7);
+    }
 }

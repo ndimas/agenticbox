@@ -1,0 +1,34 @@
+CUSTOMER HISTORY
+──────────────────────────────────────────
+Customer: Sarah Chen
+Company: Acme Corp
+Account Plan: AcmeCorp Pro (annual)
+Account Manager: James Wilson (james.w@agenticbox.com)
+
+Account Details:
+  - Users: 24
+  - Plan: Pro ($199/user/month)
+  - Contract Start: 2025-03-01
+  - Contract End: 2027-03-01
+  - Support Tier: Standard (8am-8pm EST, 4h SLA)
+
+Recent Activity:
+  2026-06-28 — Last successful login (IP: 203.0.113.42)
+  2026-06-15 — Opened ticket #T-2026-0138: "API rate limit exceeded"
+                → Resolved: increased rate limit from 1000 to 5000 req/min
+  2026-05-20 — Attended onboarding webinar "Advanced Reporting"
+  2026-04-10 — Account upgraded from Team ($99/user/mo) to Pro ($199/user/mo)
+
+Past Tickets (Last 90 Days):
+  #T-2026-0138 — API rate limit exceeded (Resolved)
+  #T-2026-0105 — SSO integration setup help (Resolved)
+  #T-2026-0072 — Billing question about seat count (Resolved)
+
+Account Status: Active, up to date
+
+Notes:
+  - VIP customer — Acme Corp is a reference account for enterprise sales
+  - Sarah is the primary technical contact for the Acme Corp account
+  - James Wilson (AM) has flagged this account for proactive outreach in July
+
+──────────────────────────────────────────

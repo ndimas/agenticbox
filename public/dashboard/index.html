@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgenticBox — Audit Dashboard</title>
+<meta name="description" content="Visual permission log and session history for AgenticBox — the Agent Governance Platform.">
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --green: #3fb950;
+    --red: #f85149;
+    --blue: #58a6ff;
+    --yellow: #d29922;
+    --accent: #58a6ff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    min-height: 100vh;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+  /* Header */
+  header {
+    border-bottom: 1px solid #30363d;
+    padding: 16px 0;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 {
+    font-size: 20px;
+    font-weight: 600;
+    color: #e6edf3;
+  }
+  header h1 span { color: #58a6ff; }
+  header .subtitle { color: #8b949e; font-size: 14px; }
+
+  /* Stats bar */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .stat-card .label { color: #8b949e; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .value { font-size: 28px; font-weight: 600; margin-top: 4px; }
+  .stat-card .value.green { color: #3fb950; }
+  .stat-card .value.red { color: #f85149; }
+  .stat-card .value.blue { color: #58a6ff; }
+  .stat-card .value.yellow { color: #d29922; }
+
+  /* Controls */
+  .controls {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .controls label { color: #8b949e; font-size: 13px; }
+  .controls select, .controls input {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    color: #e6edf3;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  .controls select:focus, .controls input:focus {
+    outline: none;
+    border-color: #58a6ff;
+  }
+  .controls button {
+    background: #238636;
+    color: #fff;
+    border: none;
+    padding: 6px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .controls button:hover { background: #2ea043; }
+  .controls .file-label {
+    background: #21262d;
+    color: #e6edf3;
+    border: 1px solid #30363d;
+    padding: 6px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .controls .file-label:hover { background: #30363d; }
+  .controls input[type="file"] { display: none; }
+
+  /* Table */
+  .table-wrap {
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  thead { background: #161b22; }
+  th {
+    text-align: left;
+    padding: 10px 12px;
+    font-weight: 600;
+    color: #8b949e;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #30363d;
+    white-space: nowrap;
+  }
+  td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #21262d;
+    vertical-align: top;
+  }
+  tr:hover td { background: #161b22; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .badge.allow { background: rgba(63, 185, 80, 0.15); color: #3fb950; }
+  .badge.deny { background: rgba(248, 81, 73, 0.15); color: #f85149; }
+  .resource-cell {
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+    font-size: 12px;
+  }
+  .action-cell {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+    font-size: 12px;
+    color: #58a6ff;
+  }
+  .hash-cell {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+    font-size: 11px;
+    color: #8b949e;
+  }
+
+  /* Session detail */
+  .session-detail {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .session-detail h3 { font-size: 14px; margin-bottom: 8px; }
+  .session-detail .meta { color: #8b949e; font-size: 12px; }
+  .session-detail .meta span { margin-right: 16px; }
+
+  /* Chain integrity */
+  .chain-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .chain-status.ok { background: rgba(63, 185, 80, 0.15); color: #3fb950; }
+  .chain-status.broken { background: rgba(248, 81, 73, 0.15); color: #f85149; }
+  .chain-status.unknown { background: rgba(210, 153, 40, 0.15); color: #d29922; }
+
+  /* Empty state */
+  .empty {
+    text-align: center;
+    padding: 48px 24px;
+    color: #8b949e;
+  }
+  .empty h2 { font-size: 18px; margin-bottom: 8px; }
+  .empty p { font-size: 14px; }
+  .empty .icon { font-size: 48px; margin-bottom: 16px; }
+
+  /* Footer */
+  footer {
+    margin-top: 32px;
+    padding: 16px 0;
+    border-top: 1px solid #30363d;
+    color: #8b949e;
+    font-size: 12px;
+    text-align: center;
+  }
+  footer a { color: #58a6ff; text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .controls { flex-direction: column; }
+    .table-wrap { overflow-x: auto; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div>
+      <h1>AgenticBox <span>Audit Dashboard</span></h1>
+      <div class="subtitle">Visual permission log and session history</div>
+    </div>
+    <div class="controls">
+      <label class="file-label" for="logfile">📂 Load Audit Log</label>
+      <input type="file" id="logfile" accept=".jsonl,.log,.txt">
+      <button id="load-sample">📄 Load Sample Data</button>
+      <button id="connect-api" style="display:none">🔌 Connect to API</button>
+    </div>
+  </header>
+
+  <!-- Stats -->
+  <div class="stats" id="stats">
+    <div class="stat-card"><div class="label">Total Entries</div><div class="value blue" id="stat-total">—</div></div>
+    <div class="stat-card"><div class="label">Allowed</div><div class="value green" id="stat-allowed">—</div></div>
+    <div class="stat-card"><div class="label">Blocked</div><div class="value red" id="stat-denied">—</div></div>
+    <div class="stat-card"><div class="label">Agents</div><div class="value yellow" id="stat-agents">—</div></div>
+    <div class="stat-card"><div class="label">Sessions</div><div class="value blue" id="stat-sessions">—</div></div>
+    <div class="stat-card"><div class="label">Chain Integrity</div><div class="value" id="stat-chain"><span class="chain-status unknown">No data</span></div></div>
+  </div>
+
+  <!-- Filters -->
+  <div class="controls">
+    <label>Agent:</label>
+    <select id="filter-agent"><option value="">All</option></select>
+    <label>Decision:</label>
+    <select id="filter-decision"><option value="">All</option><option value="allow">Allowed</option><option value="deny">Blocked</option></select>
+    <label>Action:</label>
+    <select id="filter-action"><option value="">All</option></select>
+    <label>Search:</label>
+    <input type="text" id="filter-search" placeholder="Search resources..." style="width:200px">
+    <button id="btn-refresh">🔄 Refresh</button>
+  </div>
+
+  <!-- Session detail (shown when a session is selected) -->
+  <div id="session-detail" class="session-detail" style="display:none">
+    <h3>Session <span id="session-id-display"></span></h3>
+    <div class="meta">
+      <span>Agent: <strong id="session-agent"></strong></span>
+      <span>Identity: <strong id="session-identity"></strong></span>
+      <span>Entries: <strong id="session-count"></strong></span>
+      <span>Allowed: <strong id="session-allowed" style="color:#3fb950"></strong></span>
+      <span>Blocked: <strong id="session-denied" style="color:#f85149"></strong></span>
+    </div>
+    <button id="session-close" style="margin-top:8px;background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer">✕ Close</button>
+  </div>
+
+  <!-- Table -->
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Timestamp</th>
+          <th>Agent</th>
+          <th>Identity</th>
+          <th>Action</th>
+          <th>Resource</th>
+          <th>Decision</th>
+          <th>Hash</th>
+        </tr>
+      </thead>
+      <tbody id="entries-body">
+        <tr><td colspan="8" class="empty"><div class="empty"><div class="icon">📂</div><h2>No audit log loaded</h2><p>Click \"Load Audit Log\" to open a .jsonl file, or \"Load Sample Data\" to see a demo.</p></div></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <footer>
+    AgenticBox — <a href="https://github.com/morpheus-sh/agenticbox">GitHub</a> · <a href="https://agenticbox.dev">agenticbox.dev</a> · MIT/Apache-2.0
+  </footer>
+</div>
+
+<script>
+// ─── Sample Data ────────────────────────────────────────────────────────────
+const SAMPLE_DATA = [
+  {"seq":1,"timestamp":"2026-07-12T10:00:00Z","session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","agent_name":"demo","action":"fs:read","resource":"/workspace/deploy.sh","decision":"Allow","prev_hash":"genesis","self_hash":"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":2,"timestamp":"2026-07-12T10:00:01Z","session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","agent_name":"demo","action":"fs:read","resource":"/workspace/deploy.sh","decision":"Allow","prev_hash":"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":3,"timestamp":"2026-07-12T10:00:02Z","session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","agent_name":"demo","action":"fs:read","resource":"/workspace/deploy.sh","decision":"Allow","prev_hash":"b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":4,"timestamp":"2026-07-12T10:00:02Z","session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","agent_name":"demo","action":"fs:read","resource":"~/.ssh/deploy_key","decision":{"Deny":"filesystem: path outside workspace"},"prev_hash":"c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":5,"timestamp":"2026-07-12T10:00:03Z","session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","agent_name":"demo","action":"network:outbound","resource":"https://pastebin.com/api","decision":{"Deny":"network: not in allowlist"},"prev_hash":"d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":6,"timestamp":"2026-07-12T10:00:04Z","session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","agent_name":"demo","action":"fs:read","resource":"/workspace/.env","decision":{"Deny":"filesystem: path outside workspace"},"prev_hash":"e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":7,"timestamp":"2026-07-12T10:00:05Z","session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","agent_name":"demo","action":"fs:write","resource":"/workspace/deploy.sh","decision":"Allow","prev_hash":"e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":8,"timestamp":"2026-07-12T10:00:05Z","session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","agent_name":"demo","action":"network:outbound","resource":"https://api.github.com/repos/acme/app/pulls","decision":"Allow","prev_hash":"e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":9,"timestamp":"2026-07-12T10:00:06Z","session_id":"b2c3d4e5-f6a1-7890-abcd-ef1234567890","agent_name":"security-analyst","identity_id":"550e8400-e29b-41d4-a716-446655440000","action":"fs:read","resource":"/workspace/sample_optimize_cache.sh","decision":"Allow","prev_hash":"f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":10,"timestamp":"2026-07-12T10:00:07Z","session_id":"b2c3d4e5-f6a1-7890-abcd-ef1234567890","agent_name":"security-analyst","identity_id":"550e8400-e29b-41d4-a716-446655440000","action":"fs:read","resource":"/workspace/incident_report.txt","decision":"Allow","prev_hash":"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":11,"timestamp":"2026-07-12T10:00:08Z","session_id":"b2c3d4e5-f6a1-7890-abcd-ef1234567890","agent_name":"security-analyst","identity_id":"550e8400-e29b-41d4-a716-446655440000","action":"terminal:exec","resource":"strings /workspace/sample_optimize_cache.sh","decision":"Allow","prev_hash":"b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":12,"timestamp":"2026-07-12T10:00:09Z","session_id":"b2c3d4e5-f6a1-7890-abcd-ef1234567890","agent_name":"security-analyst","identity_id":"550e8400-e29b-41d4-a716-446655440000","action":"network:outbound","resource":"https://api.github.com/repos/acme/security/issues","decision":"Allow","prev_hash":"b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":13,"timestamp":"2026-07-12T10:00:10Z","session_id":"c3d4e5f6-a1b2-7890-abcd-ef1234567890","agent_name":"support-agent","identity_id":"660e8400-e29b-41d4-a716-446655440001","action":"fs:read","resource":"/workspace/kb_article.md","decision":"Allow","prev_hash":"b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":14,"timestamp":"2026-07-12T10:00:10Z","session_id":"c3d4e5f6-a1b2-7890-abcd-ef1234567890","agent_name":"support-agent","identity_id":"660e8400-e29b-41d4-a716-446655440001","action":"fs:read","resource":"/workspace/billing_db.sqlite","decision":{"Deny":"filesystem: path outside workspace"},"prev_hash":"c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":15,"timestamp":"2026-07-12T10:00:11Z","session_id":"d4e5f6a1-b2c3-7890-abcd-ef1234567890","agent_name":"ops-sre","identity_id":"770e8400-e29b-41d4-a716-446655440002","action":"fs:read","resource":"/workspace/diagnostics.txt","decision":"Allow","prev_hash":"c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":16,"timestamp":"2026-07-12T10:00:12Z","session_id":"d4e5f6a1-b2c3-7890-abcd-ef1234567890","agent_name":"ops-sre","identity_id":"770e8400-e29b-41d4-a716-446655440002","action":"fs:read","resource":"/workspace/prod_secrets.txt","decision":{"Deny":"filesystem: path outside workspace"},"prev_hash":"d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":17,"timestamp":"2026-07-12T10:00:13Z","session_id":"d4e5f6a1-b2c3-7890-abcd-ef1234567890","agent_name":"ops-sre","identity_id":"770e8400-e29b-41d4-a716-446655440002","action":"fs:read","resource":"/workspace/runbook_high_cpu.md","decision":"Allow","prev_hash":"e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":18,"timestamp":"2026-07-12T10:00:14Z","session_id":"d4e5f6a1-b2c3-7890-abcd-ef1234567890","agent_name":"ops-sre","identity_id":"770e8400-e29b-41d4-a716-446655440002","action":"fs:read","resource":"/workspace/prod_secrets.txt","decision":{"Deny":"filesystem: path outside workspace"},"prev_hash":"f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":19,"timestamp":"2026-07-12T10:00:15Z","session_id":"d4e5f6a1-b2c3-7890-abcd-ef1234567890","agent_name":"ops-sre","identity_id":"770e8400-e29b-41d4-a716-446655440002","action":"terminal:exec","resource":"curl -s https://api.pagerduty.com/incidents","decision":"Allow","prev_hash":"e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
+  {"seq":20,"timestamp":"2026-07-12T10:00:16Z","session_id":"d4e5f6a1-b2c3-7890-abcd-ef1234567890","agent_name":"ops-sre","identity_id":"770e8400-e29b-41d4-a716-446655440002","action":"session:end","resource":"session completed","decision":"Allow","prev_hash":"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2","self_hash":"b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"}
+];
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let entries = [];
+let filteredEntries = [];
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+function formatTimestamp(ts) {
+  const d = new Date(ts);
+  return d.toLocaleString('en-US', {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  });
+}
+
+function shortHash(h) {
+  if (!h || h === 'genesis') return h;
+  return h.substring(0, 12) + '…';
+}
+
+function shortUuid(u) {
+  if (!u) return '—';
+  return u.substring(0, 8) + '…';
+}
+
+function decisionBadge(decision) {
+  if (decision === 'Allow' || (decision && decision.Allow)) {
+    return '<span class="badge allow">✓ ALLOWED</span>';
+  }
+  const reason = decision && decision.Deny ? decision.Deny : (decision || '');
+  return `<span class="badge deny">✗ BLOCKED</span> <span style="color:#8b949e;font-size:11px">${reason}</span>`;
+}
+
+function isAllowed(decision) {
+  return decision === 'Allow' || (decision && decision.Allow);
+}
+
+function getDenyReason(decision) {
+  if (decision && decision.Deny) return decision.Deny;
+  return '';
+}
+
+// ─── Render ─────────────────────────────────────────────────────────────────
+function render() {
+  const tbody = document.getElementById('entries-body');
+  const agentFilter = document.getElementById('filter-agent').value;
+  const decisionFilter = document.getElementById('filter-decision').value;
+  const actionFilter = document.getElementById('filter-action').value;
+  const searchQuery = document.getElementById('filter-search').value.toLowerCase();
+
+  filteredEntries = entries.filter(e => {
+    if (agentFilter && e.agent_name !== agentFilter) return false;
+    if (decisionFilter === 'allow' && !isAllowed(e.decision)) return false;
+    if (decisionFilter === 'deny' && isAllowed(e.decision)) return false;
+    if (actionFilter && e.action !== actionFilter) return false;
+    if (searchQuery && !e.resource.toLowerCase().includes(searchQuery) && !e.action.toLowerCase().includes(searchQuery)) return false;
+    return true;
+  });
+
+  // Update stats
+  const total = entries.length;
+  const allowed = entries.filter(e => isAllowed(e.decision)).length;
+  const denied = entries.filter(e => !isAllowed(e.decision)).length;
+  const agents = [...new Set(entries.map(e => e.agent_name))].length;
+  const sessions = [...new Set(entries.map(e => e.session_id))].length;
+
+  document.getElementById('stat-total').textContent = total;
+  document.getElementById('stat-allowed').textContent = allowed;
+  document.getElementById('stat-denied').textContent = denied;
+  document.getElementById('stat-agents').textContent = agents;
+  document.getElementById('stat-sessions').textContent = sessions;
+
+  // Chain integrity (simple check: verify prev_hash links)
+  const sorted = [...entries].sort((a, b) => a.seq - b.seq);
+  let chainOk = true;
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].prev_hash !== 'genesis' && sorted[i].prev_hash !== sorted[i-1].self_hash) {
+      chainOk = false;
+      break;
+    }
+  }
+  const chainEl = document.getElementById('stat-chain');
+  if (entries.length === 0) {
+    chainEl.innerHTML = '<span class="chain-status unknown">No data</span>';
+  } else if (chainOk) {
+    chainEl.innerHTML = '<span class="chain-status ok">✓ Chain intact</span>';
+  } else {
+    chainEl.innerHTML = '<span class="chain-status broken">✗ Chain broken</span>';
+  }
+
+  // Render rows
+  if (filteredEntries.length === 0) {
+    document.getElementById('entries-body').innerHTML =
+      '<tr><td colspan="8" class="empty"><div class="empty"><div class="icon">🔍</div><h2>No matching entries</h2><p>Try adjusting your filters.</p></div></td></tr>';
+    return;
+  }
+
+  let html = '';
+  for (const e of filteredEntries) {
+    const ts = formatTimestamp(e.timestamp);
+    const agent = e.agent_name;
+    const identity = e.identity_id ? shortUuid(e.identity_id) : '—';
+    const action = e.action;
+    const resource = e.resource;
+    const decision = e.decision;
+    const hash = shortHash(e.self_hash);
+    const seq = e.seq;
+
+    html += `<tr>
+      <td style="color:#8b949e;font-size:12px">${seq}</td>
+      <td style="font-size:12px;white-space:nowrap">${ts}</td>
+      <td>${agent}</td>
+      <td style="font-size:12px;color:#8b949e">${identity}</td>
+      <td class="action-cell">${action}</td>
+      <td class="resource-cell" title="${e.resource}">${e.resource}</td>
+      <td>${decisionBadge(e.decision)}</td>
+      <td class="hash-cell" title="${e.self_hash}">${hash}</td>
+    </tr>`;
+  }
+  document.getElementById('entries-body').innerHTML = html;
+}
+
+// ─── Load data ──────────────────────────────────────────────────────────────
+function loadEntries(data) {
+  entries = data;
+  // Populate filter dropdowns
+  const agents = [...new Set(data.map(e => e.agent_name))].sort();
+  const actions = [...new Set(data.map(e => e.action))].sort();
+  const agentSelect = document.getElementById('filter-agent');
+  const actionSelect = document.getElementById('filter-action');
+  agentSelect.innerHTML = '<option value="">All</option>' + agents.map(a => `<option value="${a}">${a}</option>`).join('');
+  actionSelect.innerHTML = '<option value="">All</option>' + actions.map(a => `<option value="${a}">${a}</option>`).join('');
+  render();
+}
+
+// ─── File loading ──────────────────────────────────────────────────────────
+document.getElementById('logfile').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    const text = ev.target.result;
+    const lines = text.split('\n').filter(l => l.trim());
+    const data = lines.map(l => JSON.parse(l));
+    loadEntries(data);
+  };
+  reader.readAsText(file);
+});
+
+document.getElementById('load-sample').addEventListener('click', function() {
+  loadEntries(SAMPLE_DATA);
+});
+
+// ─── Filter events ─────────────────────────────────────────────────────────
+document.getElementById('filter-agent').addEventListener('change', render);
+document.getElementById('filter-decision').addEventListener('change', render);
+document.getElementById('filter-action').addEventListener('change', render);
+document.getElementById('filter-search').addEventListener('input', render);
+document.getElementById('btn-refresh').addEventListener('click', render);
+
+// ─── Session detail (click on a row to see session) ─────────────────────────
+// (Simplified: clicking a session shows detail panel)
+// In a full implementation, clicking a row would filter by session_id.
+// For now, the filter dropdowns provide the main navigation.
+
+console.log('AgenticBox Audit Dashboard loaded. Load a .jsonl file to begin.');
+
+// ─── Auto-connect to API if served by agenticbox dashboard ──────────────────
+async function tryConnectApi() {
+  try {
+    const response = await fetch('/api/stats');
+    if (response.ok) {
+      document.getElementById('connect-api').style.display = 'inline-block';
+      document.getElementById('connect-api').onclick = async () => {
+        // Load entries from API
+        const statsResp = await fetch('/api/stats');
+        const stats = await statsResp.json();
+        const entriesResp = await fetch('/api/entries?limit=1000');
+        const data = await entriesResp.json();
+        loadEntries(data.entries);
+        document.getElementById('connect-api').textContent = '✅ API Connected';
+        document.getElementById('connect-api').style.borderColor = '#3fb950';
+        document.getElementById('connect-api').disabled = true;
+      };
+    }
+  } catch (e) {
+    // Not running behind the dashboard server — that's fine
+  }
+}
+tryConnectApi();
+</script>
+</body>
+</html>

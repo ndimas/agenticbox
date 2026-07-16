@@ -1,0 +1,20 @@
+Research Topic: The Impact of AI Coding Assistants on Software Engineering Productivity
+
+Background:
+Since GitHub Copilot launched in June 2022, AI-powered coding assistants have become
+one of the fastest-adopted tools in software engineering history. By 2026, over 75% of
+developers report using some form of AI assistance in their daily workflow (GitHub
+Octoverse 2025 Report).
+
+Key questions to explore:
+1. How much do these tools actually improve developer productivity?
+2. What are the measurable effects on code quality and security?
+3. How do different tools compare (Copilot, Cursor, Claude Code, Codeium)?
+4. What are the risks — supply chain attacks via AI-generated code, license concerns?
+5. What does the future look like (agentic coding, multi-file reasoning)?
+
+Sources to consider:
+- GitHub Copilot research papers (Peng et al., 2023; Ziegler et al., 2024)
+- ArXiv papers on LLM-assisted programming
+- Documentation from major AI coding tools
+- Industry analyses and developer surveys

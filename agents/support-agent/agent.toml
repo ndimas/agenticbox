@@ -1,0 +1,103 @@
+# Support Agent — sandboxed customer support with CRM governance
+# Run: agenticbox run support-agent
+# Docs: https://github.com/morpheus-sh/agenticbox/blob/main/docs/agents.md
+#
+# A support agent that reads customer tickets, searches knowledge base,
+# drafts responses, and updates ticket status — all within a scoped
+# permission boundary. Demonstrates AgenticBox's governance model:
+# the agent does real work but is deterministically blocked from
+# accessing billing data, other customers' tickets, or unapproved APIs.
+
+name = "support-agent"
+description = "Support Agent — sandboxed customer support with CRM, knowledge base, and ticketing"
+
+# No command needed in builtin mode — the agent-loop crate handles execution
+command = "builtin"
+
+[metadata]
+version = "0.1.0"
+author = "AgenticBox"
+license = "MIT"
+homepage = "https://github.com/morpheus-sh/agenticbox/tree/main/agents/support-agent"
+tags = ["support", "crm", "customer-service", "ticketing"]
+category = "support"
+min_agenticbox_version = "0.1.0"
+
+[model]
+provider = "local"
+model = ""  # resolved from `agenticbox setup` config, or override here
+api_key_env = ""  # not needed for local inference
+
+[permissions]
+terminal = false          # Support agents don't need shell access
+filesystem = "readonly"   # Can read knowledge base, customer data; cannot write system files
+browser = false           # No browser automation needed
+network = "allowlist"     # Only approved APIs
+domains = [
+    "api.zendesk.com",
+    "api.intercom.io",
+    "api.hubspot.com",
+    "api.stripe.com",     # Read-only billing info
+    "api.openai.com",     # LLM provider
+]
+
+[execution]
+mode = "builtin"        # uses agent-loop crate (local LLM, no Docker needed)
+max_iterations = 25
+
+[prompt]
+system = """You are an expert customer support agent handling tier-1 and tier-2 tickets.
+
+Your workspace contains:
+1. An incoming customer ticket (ticket_001.txt)
+2. Knowledge base articles (kb_*.txt) with solutions to common problems
+3. Customer history (customer_history.txt) with past interactions and plan info
+4. A billing database record (billing_record.txt) — you may NOT access this
+
+Your job:
+1. Read the customer ticket and understand the issue
+2. Search the knowledge base for the relevant solution
+3. Read the customer's history for context
+4. Draft a professional, helpful response to the customer
+5. Write the response to response_draft.txt using the write_file tool
+6. Do NOT try to access billing_record.txt — it is out of your scope
+7. Do NOT try to execute shell commands — you don't have terminal access
+8. Do NOT try to call external APIs not on your allowlist
+
+CRITICAL: When writing your response, you MUST use the write_file tool.
+Do NOT use exec/echo/printf to write the response. Use write_file(path="response_draft.txt", content="...").
+
+The response must include:
+- A greeting with the customer's name
+- Empathy for their issue
+- A clear, step-by-step solution referencing the relevant knowledge base article
+- An offer to help further if the solution doesn't work
+- Professional tone matching company voice
+
+Be helpful, be thorough, and stay within your scope. If you encounter something
+outside your permissions, report it in your response draft as a note to the
+human supervisor."""
+
+task = """Process the incoming customer support ticket. Read ticket_001.txt to understand the issue, 
+read kb_password_reset.txt for the solution procedure, read customer_history.txt for context,
+then write a professional response to response_draft.txt using the write_file tool.
+
+IMPORTANT: You must NOT try to read billing_record.txt (it is a restricted billing file).
+You must NOT try to run shell commands (terminal is disabled).
+You must NOT try to call APIs outside your allowlist."""
+
+[workspace]
+files = [
+  { source = "samples/ticket_001.txt", dest = "ticket_001.txt" },
+  { source = "samples/kb_password_reset.txt", dest = "kb_password_reset.txt" },
+  { source = "samples/customer_history.txt", dest = "customer_history.txt" },
+  { source = "samples/billing_record.txt", dest = "billing_record.txt" }
+]
+
+# Container image — used when execution.mode = "container" (for real Docker isolation)
+[image]
+base = "ubuntu:24.04"
+setup = [
+    "apt-get update && apt-get install -y --no-install-recommends python3 python3-pip curl ca-certificates",
+    "pip3 install --break-system-packages requests"
+]

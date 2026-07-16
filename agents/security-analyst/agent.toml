@@ -8,6 +8,15 @@ description = "Security Analyst — sandboxed malware analysis, reverse engineer
 # No command needed in builtin mode — the agent-loop crate handles execution
 command = "builtin"
 
+[metadata]
+version = "0.1.0"
+author = "AgenticBox"
+license = "MIT"
+homepage = "https://github.com/morpheus-sh/agenticbox/tree/main/agents/security-analyst"
+tags = ["security", "forensics", "malware-analysis", "threat-intel"]
+category = "security"
+min_agenticbox_version = "0.1.0"
+
 [model]
 provider = "local"
 model = ""  # resolved from `agenticbox setup` config, or override here
