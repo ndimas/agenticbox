@@ -307,7 +307,6 @@ agenticbox run demo
 - [ ] Verify `agenticbox audit --verify` confirms chain integrity
 - [ ] Verify `agenticbox dashboard` starts and serves the web UI
 - [ ] Verify `agenticbox identity create test --vertical ops` + `agenticbox identity list` works
-- [ ] Verify `agenticbox budget set test --monthly 50` + `agenticbox budget list` works
 - [ ] Run `cargo build --release --bin agenticbox` clean (no warnings, no errors)
 - [ ] Run `cargo test` — all tests pass
 - [ ] Record demo video (≤30s, 1080p) per the script above
