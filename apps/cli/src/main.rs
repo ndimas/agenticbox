@@ -308,6 +308,14 @@ enum Commands {
         #[arg(long, default_value = "8081")]
         port: u16,
     },
+
+    /// Manage persistent workspaces tied to agent identities.
+    ///
+    /// Every identity gets a persistent workspace at
+    /// `~/.local/share/agenticbox/workspaces/<identity>/` that survives
+    /// across sessions. Use this command to view or clean them.
+    #[command(subcommand)]
+    Workspace(WorkspaceCommands),
 }
 
 /// Subcommands for `agenticbox identity`
@@ -1293,6 +1301,23 @@ struct AgentCredentials {
     /// (e.g. ["OPENAI_API_KEY", "ZENDESK_API_TOKEN"])
     #[serde(default)]
     required: Vec<String>,
+}
+
+/// Subcommands for `agenticbox workspace`
+#[derive(Subcommand)]
+enum WorkspaceCommands {
+    /// List all workspaces with size and last modified time
+    List {
+        /// Output as JSON
+        #[arg(long, short)]
+        json: bool,
+    },
+
+    /// Remove a workspace for an identity
+    Clean {
+        /// Identity name whose workspace to remove
+        name: String,
+    },
 }
 
 /// Map a provider name to a default API base URL
@@ -2643,6 +2668,7 @@ fn cmd_run_named_agent(
         fs_mode: fs,
         network_mode: network_mode.to_string(),
         env,
+        identity_name: overrides.identity_name.clone(),
     };
 
     let exit_code = run_harness_sandbox(&spec)?;
@@ -2960,6 +2986,9 @@ struct HarnessSpec {
     fs_mode: String,
     network_mode: String,
     env: HashMap<String, String>,
+    /// Optional identity name. When set, the workspace is scoped to this
+    /// identity at `~/.local/share/agenticbox/workspaces/<identity>/`.
+    identity_name: Option<String>,
 }
 
 fn run_harness_sandbox(spec: &HarnessSpec) -> Result<i64> {
@@ -2984,18 +3013,34 @@ fn run_harness_sandbox(spec: &HarnessSpec) -> Result<i64> {
                 console::style(&spec.image).cyan()
             );
             mgr.pull_image(&spec.image, |status| {
-                eprint!("\r  {} {}", console::style("•").dim(), status);
+                eprint!(
+                    "
+  {} {}",
+                    console::style("•").dim(),
+                    status
+                );
             })
             .await?;
             eprintln!();
         }
 
         let cwd = std::env::current_dir()?;
+        let workspace_source = if let Some(ref identity_name) = spec.identity_name {
+            let persistent_path = sandbox_core::WorkspaceManager::ensure(identity_name)?;
+            println!(
+                "{}  Persistent workspace: {}",
+                console::style("→").dim(),
+                console::style(persistent_path.display()).cyan()
+            );
+            persistent_path
+        } else {
+            cwd.clone()
+        };
         let mounts = if spec.fs_mode == "none" {
             vec![]
         } else {
             vec![sandbox_core::SandboxMount {
-                source: cwd.to_string_lossy().to_string(),
+                source: workspace_source.to_string_lossy().to_string(),
                 target: "/workspace".into(),
                 read_only: spec.fs_mode == "readonly",
             }]
@@ -4696,6 +4741,74 @@ fn cmd_credentials(cmd: CredentialsCommands) -> Result<()> {
     }
 }
 
+/// List workspace sizes in human-readable format.
+fn human_size(bytes: u64) -> String {
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB"];
+    let mut size = bytes as f64;
+    let mut unit_idx = 0;
+    while size >= 1024.0 && unit_idx < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit_idx += 1;
+    }
+    if unit_idx == 0 {
+        format!("{} {}", size as u64, UNITS[unit_idx])
+    } else {
+        format!("{:.1} {}", size, UNITS[unit_idx])
+    }
+}
+
+/// Format a `SystemTime` as a human-readable string.
+fn format_time(time: std::time::SystemTime) -> String {
+    let duration = time
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = duration.as_secs();
+    let datetime = chrono::DateTime::from_timestamp(secs as i64, 0).unwrap_or_default();
+    datetime.format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+/// Handle `agenticbox workspace` subcommands.
+fn cmd_workspace(cmd: WorkspaceCommands) -> Result<()> {
+    match cmd {
+        WorkspaceCommands::List { json } => {
+            let workspaces = sandbox_core::WorkspaceManager::list()?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&workspaces)?);
+            } else if workspaces.is_empty() {
+                println!(
+                    "{} No workspaces found. Run `agenticbox run <agent> --identity <name>` to create one.",
+                    console::style("→").dim()
+                );
+            } else {
+                println!(
+                    "{} Workspaces ({})\n",
+                    console::style("→").dim(),
+                    workspaces.len()
+                );
+                for ws in &workspaces {
+                    println!(
+                        "  {}  {}  {}  {}",
+                        console::style(&ws.identity).cyan(),
+                        human_size(ws.size),
+                        format_time(ws.modified),
+                        console::style(ws.path.display()).dim()
+                    );
+                }
+            }
+            Ok(())
+        }
+        WorkspaceCommands::Clean { name } => {
+            sandbox_core::WorkspaceManager::clean(&name)?;
+            println!(
+                "{} Workspace for '{}' removed.",
+                console::style("✓").green(),
+                name
+            );
+            Ok(())
+        }
+    }
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
@@ -4832,6 +4945,7 @@ fn main() -> Result<()> {
         )?,
         Commands::Identity(cmd) => cmd_identity(cmd)?,
         Commands::Credentials(cmd) => cmd_credentials(cmd)?,
+        Commands::Workspace(cmd) => cmd_workspace(cmd)?,
         Commands::Dashboard { port } => {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(dashboard::serve_dashboard(port))?;
