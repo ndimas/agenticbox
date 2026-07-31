@@ -15,7 +15,6 @@ tracing.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
-dirs = "5.0"
 
 [dev-dependencies]
 tempfile = "3.10"

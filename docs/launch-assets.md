@@ -1,7 +1,7 @@
 # AgenticBox — Launch Assets
 
 > Draft assets for the coordinated GitHub + X + Hacker News launch (kanban P0 #2 and #3).
-> **Updated Run 42:** Added research agent (browser automation) as 4th vertical template. All shipped features reflected.
+> **Updated Run 26:** All shipped features reflected (audit log, identity, rotation, dry-run, auto-fetch, 3 verticals, web dashboard).
 > Each section is publication-ready. Review voice/tone, record the demo video, and ship.
 
 ---
@@ -59,22 +59,15 @@ What's shipped:
 - Audit log rotation — automatic by size/age, manual via `agenticbox audit --rotate`
 - Dry-run mode — preview permissions without executing: `agenticbox run <name> --dry-run`
 - Auto-fetch registry — `agenticbox run <name>` auto-fetches from the official registry
-- Vertical templates — security analyst, support agent, ops/SRE, research agent — ready-to-run governed agents
-- Browser automation — governed by deterministic network allowlist (`research-agent` template)
+- Vertical templates — security analyst, support agent, ops/SRE — ready-to-run governed agents
 - Web dashboard — `agenticbox dashboard` serves a live audit log viewer on localhost:8081
-- Cost governance — per-agent budgets, usage tracking, budget alerts (`agenticbox budget`, `agenticbox usage`, `agenticbox alert`)
 
 What's not shipped yet (being honest):
 - SSO/RBAC — on the roadmap for enterprise
 - Managed cloud — self-hosted only today
-- Persistent sessions — long-running background agents (`agenticbox deploy`)
+- Browser automation — on the roadmap
 
 It's written in Rust, MIT/Apache-2.0, and runs locally first. No daemon required for the demo.
-
-One-liner install (60–120 seconds):
-
-    curl -fsSL https://raw.githubusercontent.com/morpheus-sh/agenticbox/main/scripts/install.sh | bash
-    agenticbox run demo
 
 Repo: https://github.com/morpheus-sh/agenticbox
 
@@ -184,15 +177,16 @@ Agents are TOML manifests — like Docker images, but for agent roles.
 
 ---
 
-**Tweet 6 (open source + local-first — the one-liner)**
+**Tweet 6 (open source + local-first)**
 
 ```
 Open source. Rust. MIT/Apache-2.0. Local-first.
 
-The demo runs in 30 seconds — one command, no setup:
+The demo runs in 10 seconds — no Docker, no API keys, no daemon:
 
-  curl -fsSL https://raw.githubusercontent.com/morpheus-sh/agenticbox/main/scripts/install.sh | bash
-  agenticbox run demo
+  git clone https://github.com/morpheus-sh/agenticbox.git
+  cargo build --release --bin agenticbox
+  ./target/release/agenticbox run demo
 
 Repo: https://github.com/morpheus-sh/agenticbox
 ```
@@ -220,8 +214,7 @@ Your AI agent tried to read SSH keys. AgenticBox caught it.
 
 Open-source CLI that wraps any agent in a deterministic permission layer. Every action: ALLOWED or BLOCKED, with a reason, in real-time. TOML policy, enforced in Rust. Framework-agnostic.
 
-One-liner install: curl -fsSL https://raw.githubusercontent.com/morpheus-sh/agenticbox/main/scripts/install.sh | bash
-Demo in 30 seconds: https://github.com/morpheus-sh/agenticbox
+Demo in 10 seconds: https://github.com/morpheus-sh/agenticbox
 ```
 
 ---
@@ -237,20 +230,14 @@ Demo in 30 seconds: https://github.com/morpheus-sh/agenticbox
 ### Pre-Recording Setup
 
 ```bash
-# One-liner install (60-120 seconds, one-time)
-# Option A: One-liner install (recommended for video)
-curl -fsSL https://raw.githubusercontent.com/morpheus-sh/agenticbox/main/scripts/install.sh | bash
-
-# Option B: Clone + build (if you prefer showing the repo)
+# Build the CLI (30 seconds, one-time)
 git clone https://github.com/morpheus-sh/agenticbox.git
 cd agenticbox
 cargo build --release --bin agenticbox
 
 # Verify the demo works
-agenticbox run demo
+./target/release/agenticbox run demo
 ```
-
-> **Video choice:** Option A (one-liner) is dramatically better for the demo video — `curl | bash` → `agenticbox run demo` in ~2 minutes conveys "this is a tool, not a project." Option B (clone + build) is good if you want to also show the repo, but adds friction to the demo flow. Recommend: show the one-liner in a terminal split or fast-cut, then jump to the demo output.
 
 - **Terminal:** Use a dark theme (Dracula, One Dark, or similar). Font size 16–18pt for readability.
 - **Window:** 1200x700 or similar widescreen. Hide the title bar if possible.
@@ -303,7 +290,6 @@ agenticbox run demo
 ### Pre-Launch (Do these 1-2 days before)
 - [ ] Verify `agenticbox run demo` still works cleanly (build from scratch, run demo, check audit --summary)
 - [ ] Verify `agenticbox run security-analyst --dry-run` works (auto-fetch + dry-run)
-- [ ] Verify `agenticbox run research-agent --dry-run` works (browser-enabled template preview)
 - [ ] Verify `agenticbox audit --verify` confirms chain integrity
 - [ ] Verify `agenticbox dashboard` starts and serves the web UI
 - [ ] Verify `agenticbox identity create test --vertical ops` + `agenticbox identity list` works
