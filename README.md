@@ -75,56 +75,6 @@ That's the whole pitch: **your agent tries something dangerous → we catch it b
 
 [Record the demo →](#quick-start)
 
-### Full Enterprise Flow: Identity → Run → Trust → Audit
-
-AgenticBox doesn't just block dangerous actions — it attributes every decision to a **named identity**, tracks **trust scores** across sessions, and writes everything to a **tamper-evident audit log** you can verify or stream to a dashboard.
-
-```bash
-# 1. Create an identity (like on-boarding an employee)
-$ agenticbox identity create deploy-bot --vertical ops
-✓ Created identity 'deploy-bot' (a1b2c3d4-...)
-  Status:     Active
-  Trust:      0
-
-# 2. Run an agent with that identity
-$ agenticbox run ops-sre --identity deploy-bot
-
-→ Identity: deploy-bot (a1b2c3d4) · Status: Active · Trust Score: 0
-  Permissions: terminal=true  fs=readonly  network=allowlist  browser=false
-
- AGENT → journalctl -u app.service --no-pager -n 50
-  ✓ ALLOWED → within permissions
-
- AGENT → cat /etc/kubernetes/admin.conf
-  ✗ BLOCKED → filesystem: path outside workspace (kubeconfig)
-
- AGENT → curl -X POST https://api.github.com/repos/acme/app/deployments
-  ✓ ALLOWED → within permissions
-
-━━━ Session Summary ━━━
-  Identity:  deploy-bot (a1b2c3d4)
-  2 allowed · 1 blocked
-  Trust delta: ↓ -3 (blocked filesystem access)
-  Status:     Active → Monitored (trust score: -3)
-
-# 3. Verify the audit trail
-$ agenticbox audit --summary
-  ✓ 3 allowed
-  ✗ 1 blocked
-
-$ agenticbox audit --verify
-  ✓ Audit chain verified — 4 entries, no tampering detected
-
-# 4. Launch the web dashboard
-$ agenticbox dashboard
-  → Dashboard running at http://127.0.0.1:8081
-    Open in browser to view the audit log, filter by agent, and verify chain integrity
-```
-
-**How trust scoring works:** Every session adjusts the identity's trust score deterministically — +1 for clean sessions, -5 for blocked network exfiltration, -3 for blocked filesystem access, -2 for blocked fs:write, -1 for other blocks. A Monitored identity automatically has its permissions tightened (filesystem downgraded to readonly, network downgraded to allowlist-only) until it proves trustworthy over 3 consecutive clean sessions.
-
-**The result:** Your agent has a badge, a track record, and consequences for bad behavior — just like a human employee.
-
 ---
 
 ## What Is AgenticBox?
@@ -152,25 +102,6 @@ AgenticBox is the layer between "agent built" and "agent deployed in production 
 
 ## Quick Start
 
-### Install
-
-**One-liner (macOS, Linux, Windows via git-bash):**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/morpheus-sh/agenticbox/main/scripts/install.sh | bash
-```
-
-This clones the repo, builds only the CLI binary, and installs it to `~/.cargo/bin/agenticbox`.
-
-**Or build from source:**
-
-```bash
-git clone https://github.com/morpheus-sh/agenticbox.git
-cd agenticbox
-cargo build --release --bin agenticbox
-# Binary is at ./target/release/agenticbox
-```
-
 ### Prerequisites
 
 - **Rust 1.75+** — [install via rustup](https://rustup.rs)
@@ -178,25 +109,33 @@ cargo build --release --bin agenticbox
 > That's all you need for the demo. Docker and an LLM API are only required for
 > container mode (`agenticbox run -- cmd`) and builtin agent mode (`agenticbox run hermes`).
 
+### Build
+
+```bash
+git clone https://github.com/morpheus-sh/agenticbox.git
+cd agenticbox
+cargo build --release --bin agenticbox
+```
+
 ### See it work in 10 seconds
 
 ```bash
 # Built-in permission guard demo — real FsGuard + NetworkGuard enforcement.
 # No Docker, no API keys, no daemon needed.
-agenticbox run demo
+./target/release/agenticbox run demo
 ```
 
 ### Run a real agent (requires Docker)
 
 ```bash
 # Run a named agent — auto-fetches from the registry if not installed locally
-agenticbox run security-analyst
+./target/release/agenticbox run security-analyst
 
 # Preview permissions without executing
-agenticbox run security-analyst --dry-run
+./target/release/agenticbox run security-analyst --dry-run
 
 # Or wrap any command ad-hoc
-agenticbox run -- python3 -c "print('sandboxed!')"
+./target/release/agenticbox run -- python3 -c "print('sandboxed!')"
 ```
 
 > **Builtin agent mode** (no Docker): set up a local LLM via `agenticbox setup`,
@@ -207,8 +146,8 @@ agenticbox run -- python3 -c "print('sandboxed!')"
 
 ```bash
 # Every run writes Allow/Deny decisions to a tamper-evident audit log
-agenticbox audit --summary    # show allow/deny counts
-agenticbox audit --verify     # verify chain integrity
+./target/release/agenticbox audit --summary    # show allow/deny counts
+./target/release/agenticbox audit --verify     # verify chain integrity
 ```
 
 ---
@@ -221,7 +160,7 @@ AgenticBox governs agents through four primitives — the minimum set an enterpr
 |--------|---------------|----------------|
 | **Permissions** | Terminal, filesystem, network, browser — scoped and enforced via deterministic TOML policy. The agent can only do what it's authorized to do. | **Deterministic floor.** Declared in TOML, enforced in Rust. The AI layer can suggest; the policy layer decides. An LLM hallucination can't bypass a `filesystem = "readonly"` rule. |
 | **Accountability** | Every action attributed, logged, auditable. Tamper-evident audit trail with SHA-256 chain hashing — each entry links to the previous entry's hash, so any modification is immediately detectable. Query with `agenticbox audit`, verify integrity with `agenticbox audit --verify`. | **Who did what, when, and was it allowed?** Enterprises need this for compliance, incident response, and procurement. The audit log is the compliance cornerstone — CISOs need to see a tamper-evident trail, and now it exists. |
-| **Ownership Boundaries** | Clear boundaries on resources, outputs, and assets. What belongs to the agent vs. the organization. | **No leaked IP.** Each agent gets a bounded scope — files it can write, APIs it can call, storage it can use. |
+| **Ownership Boundaries** | Clear boundaries on resources, outputs, budgets, and assets. What belongs to the agent vs. the organization. | **No ghost bills, no leaked IP.** Each agent gets a bounded scope — files it can write, APIs it can call, storage it can use. |
 | **Identity** | Agents get their own credentials, accounts, and digital identity — provisioned and revocable, just like a human employee. `agenticbox identity` CLI for create/list/revoke, `agenticbox credentials` for encrypted credential management. | **The moat.** When every agent has its own API key, SSH credential, and service account, you can audit, revoke, and rotate independently. No shared secrets. |
 
 ---
@@ -243,7 +182,6 @@ AgenticBox governs agents through four primitives — the minimum set an enterpr
 | **Dry-Run Mode** | ✅ `agenticbox run <name> --dry-run` — preview permissions without executing |
 | **Tamper-Evident Audit Log** | ✅ `agenticbox audit` — SHA-256 chained JSONL, `--verify` for tamper detection, `--summary` for counts |
 | **Built-in Demo** | ✅ `agenticbox run demo` — scripted permission guard showcase with audit logging |
-| **Browser Automation** | ✅ Governed browser via `research-agent` vertical template — `browser=true` + `network=allowlist` |
 | **Session Management** | ✅ SQLite-backed session tracking with identity attribution |
 | **Agent Identity** | ✅ `agenticbox identity` — create, list, revoke identities with encrypted credential storage |
 | **Audit Log Rotation** | ✅ Automatic by size/age, manual via `agenticbox audit --rotate` |
@@ -353,7 +291,7 @@ Every alternative solves one part of the problem; you'd need to assemble the res
 | Sandboxed execution | ✅ Docker/Podman | ✅ Containers | ✅ Firecracker | ❌ | ⚠️ (on their side) |
 | **Deterministic permissions** | ✅ TOML policies in Rust | ❌ | ❌ | ❌ | ❌ |
 | **Audit trail (agent actions)** | ✅ Tamper-evident, SHA-256 chained | ❌ Container logs only | ⚠️ Exec logs | ❌ | ⚠️ Their logs |
-| Vertical templates | ✅ Security analyst + support agent + ops/SRE + research agent | ❌ | ❌ | ❌ | ❌ |
+| Vertical templates | ✅ Security analyst + support agent + ops/SRE | ❌ | ❌ | ❌ | ❌ |
 | **Agent identity** | ✅ `agenticbox identity` — create, list, revoke identities with encrypted credential storage | ❌ | ❌ | ❌ | ❌ |
 | Model-agnostic | ✅ Any LLM | n/a | ✅ | ✅ | ❌ OpenAI only |
 | Local-first / self-hosted | ✅ | ✅ | ✅ (self-host) | ✅ | ❌ |
@@ -450,11 +388,12 @@ agenticbox health                      # health check
 ## Roadmap
 
 ### Now ✅
-Core deployment engine — `agenticbox run` spawns bounded containers, installs agents at runtime, relays interactive stdio with PTY support. Scoped permissions enforced at the runtime boundary. Tamper-evident audit logging with SHA-256 chain hashing. Auto-fetch from package registry. Dry-run mode for permission previews. Governed browser automation via research-agent template.
+Core deployment engine — `agenticbox run` spawns bounded containers, installs agents at runtime, relays interactive stdio with PTY support. Scoped permissions enforced at the runtime boundary. Tamper-evident audit logging with SHA-256 chain hashing. Auto-fetch from package registry. Dry-run mode for permission previews.
 
 ### Next 🟡
 - ACP permission interception — parse JSON-RPC tool calls, enforce allow/deny at the protocol level
 - Agent install caching — named volumes for npm/pip cache (no more 3-minute installs every run)
+- Browser automation with governed scopes
 - Persistent sessions — `agenticbox deploy` for long-running agents
 - Waitlist → beta onboarding for managed cloud
 

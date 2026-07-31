@@ -1,8 +1,6 @@
 mod runtime;
-mod workspace;
 
 pub use runtime::ContainerRuntime;
-pub use workspace::{WorkspaceInfo, WorkspaceManager};
 
 use bollard::container::{
     Config, CreateContainerOptions, LogOutput, LogsOptions, RemoveContainerOptions,

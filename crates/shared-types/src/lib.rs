@@ -18,10 +18,6 @@ pub struct AgentIdentity {
     pub created_at: DateTime<Utc>,
     pub status: IdentityStatus,
     pub trust_score: i32,
-    /// Number of consecutive clean sessions (no deny events).
-    /// Resets to 0 on any violation. Used for trust recovery:
-    /// Monitored → Active after RECOVERY_CLEAN_SESSIONS clean sessions.
-    pub consecutive_clean_sessions: u32,
 }
 
 /// Lifecycle status of an agent identity.
@@ -387,14 +383,12 @@ mod tests {
             created_at: chrono::Utc::now(),
             status: IdentityStatus::Active,
             trust_score: 10,
-            consecutive_clean_sessions: 5,
         };
         let json = serde_json::to_string(&identity).unwrap();
         let deserialized: AgentIdentity = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.name, "aria-support");
         assert_eq!(deserialized.trust_score, 10);
         assert_eq!(deserialized.status, IdentityStatus::Active);
-        assert_eq!(deserialized.consecutive_clean_sessions, 5);
     }
 
     #[test]

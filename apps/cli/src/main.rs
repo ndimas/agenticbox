@@ -308,14 +308,6 @@ enum Commands {
         #[arg(long, default_value = "8081")]
         port: u16,
     },
-
-    /// Manage persistent workspaces tied to agent identities.
-    ///
-    /// Every identity gets a persistent workspace at
-    /// `~/.local/share/agenticbox/workspaces/<identity>/` that survives
-    /// across sessions. Use this command to view or clean them.
-    #[command(subcommand)]
-    Workspace(WorkspaceCommands),
 }
 
 /// Subcommands for `agenticbox identity`
@@ -458,70 +450,6 @@ fn get_daemon_url(config: &Config, cli_url: &str) -> String {
         .daemon_url
         .clone()
         .unwrap_or_else(|| cli_url.to_string())
-}
-
-/// Fetch available models from a provider's OpenAI-compatible /v1/models endpoint.
-/// Returns an empty vec on any error (network, parse, etc.) so the caller falls back to defaults.
-fn fetch_available_models(provider: &str, config: &ProviderConfig) -> Result<Vec<String>> {
-    // Determine the base URL for the API call
-    let base_url = match &config.base_url {
-        Some(url) => url.trim_end_matches('/').to_string(),
-        None => match provider {
-            "openai" => "https://api.openai.com/v1".to_string(),
-            "anthropic" => "https://api.anthropic.com/v1".to_string(),
-            "openrouter" => "https://openrouter.ai/api/v1".to_string(),
-            "ollama" => "http://localhost:11434/v1".to_string(),
-            _ => return Ok(vec![]), // unknown provider, no default URL
-        },
-    };
-
-    let models_url = format!("{}/models", base_url);
-
-    // Build the client with a short timeout
-    let client = Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .context("Failed to build HTTP client")?;
-
-    // Build the request
-    let mut req = client.get(&models_url);
-
-    // Add API key header if available (OpenAI-compatible: Authorization: Bearer <key>)
-    if let Some(env_var) = &config.api_key_env {
-        if let Ok(key) = std::env::var(env_var) {
-            req = req.header("Authorization", format!("Bearer {}", key));
-        }
-    }
-
-    // Make the request
-    let resp = match req.send() {
-        Ok(r) => r,
-        Err(_) => return Ok(vec![]), // Network error — fall back to defaults
-    };
-
-    if !resp.status().is_success() {
-        return Ok(vec![]); // Non-200 — fall back to defaults
-    }
-
-    // Parse OpenAI-compatible /v1/models response
-    // Response format: { "data": [{ "id": "gpt-4o", "object": "model", ... }, ...] }
-    #[derive(Deserialize)]
-    struct ModelsResponse {
-        data: Vec<ModelEntry>,
-    }
-
-    #[derive(Deserialize)]
-    struct ModelEntry {
-        id: String,
-    }
-
-    let models_resp: ModelsResponse = match resp.json() {
-        Ok(r) => r,
-        Err(_) => return Ok(vec![]), // Parse error — fall back to defaults
-    };
-
-    let model_ids: Vec<String> = models_resp.data.into_iter().map(|m| m.id).collect();
-    Ok(model_ids)
 }
 
 fn cmd_setup(non_interactive: bool, reset: bool) -> Result<()> {
@@ -709,29 +637,7 @@ fn cmd_setup(non_interactive: bool, reset: bool) -> Result<()> {
     let model = prompt_with_default("Model", current_model)?;
     config.default_model = Some(model.clone());
     provider_config.default_model = Some(model);
-
-    // Fetch available models from the provider API (OpenAI-compatible /v1/models endpoint)
-    let models = fetch_available_models(&provider, provider_config)?;
-    if !models.is_empty() {
-        provider_config.models = models;
-    } else {
-        // Fallback: hardcoded defaults for common providers
-        provider_config.models = match provider.as_str() {
-            "openai" => vec!["gpt-4o".into(), "gpt-4o-mini".into(), "gpt-4-turbo".into()],
-            "anthropic" => vec![
-                "claude-3-5-sonnet-20241022".into(),
-                "claude-3-opus-20240229".into(),
-                "claude-3-haiku-20240307".into(),
-            ],
-            "openrouter" => vec![
-                "anthropic/claude-3.5-sonnet".into(),
-                "openai/gpt-4o".into(),
-                "meta-llama/llama-3.1-70b-instruct".into(),
-            ],
-            "ollama" => vec!["llama3.1".into(), "mistral".into(), "codellama".into()],
-            _ => vec!["gpt-4o".into(), "gpt-4o-mini".into(), "gpt-4-turbo".into()],
-        };
-    }
+    provider_config.models = vec!["gpt-4o".into(), "gpt-4o-mini".into(), "gpt-4-turbo".into()]; // TODO: fetch dynamically
 
     // Save
     save_config(&config)?;
@@ -1303,23 +1209,6 @@ struct AgentCredentials {
     required: Vec<String>,
 }
 
-/// Subcommands for `agenticbox workspace`
-#[derive(Subcommand)]
-enum WorkspaceCommands {
-    /// List all workspaces with size and last modified time
-    List {
-        /// Output as JSON
-        #[arg(long, short)]
-        json: bool,
-    },
-
-    /// Remove a workspace for an identity
-    Clean {
-        /// Identity name whose workspace to remove
-        name: String,
-    },
-}
-
 /// Map a provider name to a default API base URL
 fn provider_api_base(provider: &str) -> String {
     match provider {
@@ -1490,7 +1379,7 @@ fn cmd_init(name: String, command: Option<String>, provider: String, model: Stri
 # Docs: https://github.com/morpheus-sh/agenticbox/blob/main/docs/agents.md
 
 name = "{name}"
-description = "My custom agent"
+description = "TODO: describe what this agent does"
 command = "{cmd}"
 
 [metadata]
@@ -2236,224 +2125,11 @@ fn resolve_identity(identity_name: &str) -> Result<Option<(Uuid, HashMap<String,
     })
 }
 
-/// Apply Monitored-level policy tightening to permissions.
-///
-/// If the identity's status is Monitored, certain permissions are
-/// automatically tightened — network "full" → "allowlist" with a
-/// restrictive default set, filesystem "readwrite" → "readonly".
-/// Returns the (possibly modified) permissions components.
-/// If the identity cannot be looked up, returns the originals unchanged.
-fn apply_monitored_policy(
-    identity_id: Option<Uuid>,
-    terminal: bool,
-    fs: String,
-    network: String,
-    browser: bool,
-    domains: Vec<String>,
-) -> (bool, String, String, bool, Vec<String>) {
-    let id = match identity_id {
-        Some(id) => id,
-        None => return (terminal, fs, network, browser, domains),
-    };
-
-    let db_path = match dirs::data_dir() {
-        Some(d) => d.join("agenticbox").join("agenticbox.db"),
-        None => return (terminal, fs, network, browser, domains),
-    };
-
-    if !db_path.exists() {
-        return (terminal, fs, network, browser, domains);
-    }
-
-    let rt = match tokio::runtime::Runtime::new() {
-        Ok(r) => r,
-        Err(_) => return (terminal, fs, network, browser, domains),
-    };
-
-    let result = rt.block_on(async {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .connect(&format!("sqlite:{}", db_path.display()))
-            .await
-            .ok()?;
-        let row: Option<(String,)> =
-            sqlx::query_as("SELECT status FROM agent_identities WHERE id = ?")
-                .bind(id.to_string())
-                .fetch_optional(&pool)
-                .await
-                .ok()?;
-        row.map(|(s,)| s)
-    });
-
-    let status = match result {
-        Some(s) => s,
-        None => return (terminal, fs, network, browser, domains),
-    };
-
-    if status != "Monitored" {
-        return (terminal, fs, network, browser, domains);
-    }
-
-    let mut new_fs = fs;
-    let mut new_network = network;
-    let mut new_domains = domains;
-
-    if new_fs == "readwrite" {
-        new_fs = "readonly".to_string();
-        eprintln!(
-            "{}  Monitored identity: filesystem downgraded to 'readonly'",
-            console::style("⚠").yellow()
-        );
-    }
-    if new_network == "full" {
-        new_network = "allowlist".to_string();
-        new_domains = vec!["api.openai.com".to_string(), "github.com".to_string()];
-        eprintln!(
-            "{}  Monitored identity: network downgraded to 'allowlist' (OpenAI + GitHub only)",
-            console::style("⚠").yellow()
-        );
-    }
-
-    (terminal, new_fs, new_network, browser, new_domains)
-}
-
-/// Check whether an identity is allowed to start a new session.
-///
-/// Returns `Ok(())` if the identity is Active or Monitored.
-/// Returns an error with a human-readable message if Suspended or Revoked.
-fn check_identity_session_gate(identity_id: Uuid) -> Result<()> {
-    let db_path = dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("agenticbox")
-        .join("agenticbox.db");
-
-    if !db_path.exists() {
-        return Ok(()); // no DB = no identities = nothing to gate
-    }
-
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .connect(&format!("sqlite:{}", db_path.display()))
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to connect to database: {}", e))?;
-
-        let row: Option<(String, i32)> = sqlx::query_as(
-            "SELECT status, trust_score FROM agent_identities WHERE id = ?",
-        )
-        .bind(identity_id.to_string())
-        .fetch_optional(&pool)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to look up identity: {}", e))?;
-
-        match row {
-            None => Ok(()), // identity not in DB — nothing to gate
-            Some((status, score)) => match status.as_str() {
-                "Suspended" => anyhow::bail!(
-                    "Identity is suspended (trust score: {}). Requires admin review before starting new sessions.",
-                    score
-                ),
-                "Revoked" => anyhow::bail!(
-                    "Identity is revoked (trust score: {}). All sessions are blocked.",
-                    score
-                ),
-                _ => Ok(()),
-            },
-        }
-    })
-}
-
-/// Update the trust score for an identity after a session ends.
-///
-/// Computes the delta from the decision history and applies it to the
-/// database. If the score crosses a threshold, the identity status is
-/// updated automatically. Prints the result to the console.
-fn apply_trust_score_update(identity_id: Uuid, history: &[agent_loop::DecisionLog]) {
-    let db_path = match dirs::data_dir() {
-        Some(d) => d.join("agenticbox").join("agenticbox.db"),
-        None => return,
-    };
-
-    if !db_path.exists() {
-        return;
-    }
-
-    let delta = agent_loop::compute_trust_delta(history);
-
-    let rt = match tokio::runtime::Runtime::new() {
-        Ok(r) => r,
-        Err(_) => return,
-    };
-
-    let result = rt.block_on(async {
-        // Use session-manager's update_trust_score which handles
-        // clean session counting and auto-recovery from Monitored
-        let sm =
-            session_manager::SessionManager::new(&format!("sqlite:{}", db_path.display())).await?;
-        let updated = sm.update_trust_score(identity_id, delta).await?;
-
-        Ok::<_, anyhow::Error>(Some((updated.trust_score, updated.status)))
-    });
-
-    if let Ok(Some((new_score, new_status))) = result {
-        let arrow = if delta >= 0 { "↑" } else { "↓" };
-        let color = if delta >= 0 {
-            console::style(format!("{} {}", arrow, delta)).green()
-        } else {
-            console::style(format!("{} {}", arrow, delta)).red()
-        };
-
-        // We don't have the old score in this path, so show just the new one
-        println!("  {} Trust score {}", console::style("◆").dim(), color,);
-        println!(
-            "  {} Current score: {}  Status: {:?}",
-            console::style("◆").dim(),
-            console::style(new_score).bold(),
-            new_status,
-        );
-
-        // Show recovery message if auto-recovered to Active
-        if new_status == shared_types::IdentityStatus::Active && delta >= 0 {
-            println!(
-                "  {} Identity auto-recovered to Active after clean sessions",
-                console::style("✓").green(),
-            );
-        }
-    }
-}
-
-/// Resolve an optional identity name to a UUID (transient, non-fatal).
-/// Returns None silently if the identity doesn't exist or DB is absent.
-fn resolve_identity_optional(name: &Option<String>) -> Option<Uuid> {
-    let name = name.as_ref()?;
-    let db_path = dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("agenticbox")
-        .join("agenticbox.db");
-    if !db_path.exists() {
-        return None;
-    }
-    let rt = tokio::runtime::Runtime::new().ok()?;
-    rt.block_on(async {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .connect(&format!("sqlite:{}", db_path.display()))
-            .await
-            .ok()?;
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT id FROM agent_identities WHERE name = ? AND status != 'Revoked'",
-        )
-        .bind(name)
-        .fetch_optional(&pool)
-        .await
-        .ok()?;
-        row.and_then(|(id,)| Uuid::parse_str(&id).ok())
-    })
-}
-
 fn ts() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
+        .unwrap()
         .as_secs();
     format!(
         "{:02}:{:02}:{:02}",
@@ -2543,11 +2219,6 @@ fn cmd_run_named_agent(
         None
     };
 
-    // Session-start gate: block if identity is Suspended or Revoked
-    if let Some(id) = identity_id {
-        check_identity_session_gate(id)?;
-    }
-
     // Log session start
     let _ = audit.log(
         session_id,
@@ -2574,16 +2245,6 @@ fn cmd_run_named_agent(
         .clone()
         .map(|d| d.split(',').map(|s| s.trim().to_string()).collect())
         .unwrap_or(manifest.permissions.domains.clone());
-
-    // Apply Monitored-level policy tightening (if identity is Monitored)
-    let (terminal, fs, network, browser, domains) = apply_monitored_policy(
-        identity_id,
-        terminal,
-        fs.clone(),
-        network.clone(),
-        browser,
-        domains.clone(),
-    );
 
     let permissions_str = format!(
         "terminal={}  fs={}  network={}({})  browser={}",
@@ -2668,7 +2329,6 @@ fn cmd_run_named_agent(
         fs_mode: fs,
         network_mode: network_mode.to_string(),
         env,
-        identity_name: overrides.identity_name.clone(),
     };
 
     let exit_code = run_harness_sandbox(&spec)?;
@@ -2782,16 +2442,6 @@ fn cmd_run_adhoc(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_else(|| vec!["api.openai.com".into(), "github.com".into()]);
-
-    // Apply Monitored-level policy tightening (if identity is Monitored)
-    let (terminal, fs, network, browser, domains) = apply_monitored_policy(
-        identity_id,
-        terminal,
-        fs.clone(),
-        network.clone(),
-        browser,
-        domains.clone(),
-    );
 
     let permissions_str = format!(
         "terminal={}  fs={}  network={}({})  browser={}",
@@ -2986,9 +2636,6 @@ struct HarnessSpec {
     fs_mode: String,
     network_mode: String,
     env: HashMap<String, String>,
-    /// Optional identity name. When set, the workspace is scoped to this
-    /// identity at `~/.local/share/agenticbox/workspaces/<identity>/`.
-    identity_name: Option<String>,
 }
 
 fn run_harness_sandbox(spec: &HarnessSpec) -> Result<i64> {
@@ -3013,34 +2660,18 @@ fn run_harness_sandbox(spec: &HarnessSpec) -> Result<i64> {
                 console::style(&spec.image).cyan()
             );
             mgr.pull_image(&spec.image, |status| {
-                eprint!(
-                    "
-  {} {}",
-                    console::style("•").dim(),
-                    status
-                );
+                eprint!("\r  {} {}", console::style("•").dim(), status);
             })
             .await?;
             eprintln!();
         }
 
         let cwd = std::env::current_dir()?;
-        let workspace_source = if let Some(ref identity_name) = spec.identity_name {
-            let persistent_path = sandbox_core::WorkspaceManager::ensure(identity_name)?;
-            println!(
-                "{}  Persistent workspace: {}",
-                console::style("→").dim(),
-                console::style(persistent_path.display()).cyan()
-            );
-            persistent_path
-        } else {
-            cwd.clone()
-        };
         let mounts = if spec.fs_mode == "none" {
             vec![]
         } else {
             vec![sandbox_core::SandboxMount {
-                source: workspace_source.to_string_lossy().to_string(),
+                source: cwd.to_string_lossy().to_string(),
                 target: "/workspace".into(),
                 read_only: spec.fs_mode == "readonly",
             }]
@@ -3446,8 +3077,7 @@ fn auto_fetch_and_run(
     // Run the agent
     if manifest.execution.mode == "builtin" {
         let config = load_config().unwrap_or_default();
-        let identity_id = resolve_identity_optional(&overrides.identity_name);
-        return run_builtin_agent(&manifest, config, identity_id);
+        return run_builtin_agent(&manifest, config);
     }
     // Create a minimal client — won't actually be used if standalone
     let client = Client::builder().timeout(Duration::from_secs(10)).build()?;
@@ -3579,8 +3209,7 @@ fn cmd_run(
                 return print_dry_run(&manifest);
             }
             if manifest.execution.mode == "builtin" {
-                let identity_id = resolve_identity_optional(&overrides.identity_name);
-                return run_builtin_agent(&manifest, (*config).clone(), identity_id);
+                return run_builtin_agent(&manifest, (*config).clone());
             }
             cmd_run_named_agent(client, base, config, manifest, &overrides, standalone)
         }
@@ -3741,11 +3370,8 @@ Do NOT skip deployment. The fix is useless if it's not deployed. Read the deploy
     Ok(())
 }
 
-fn run_builtin_agent(
-    manifest: &AgentManifest,
-    mut config: Config,
-    identity_id: Option<Uuid>,
-) -> Result<()> {
+/// Run a builtin agent using the agent-loop crate (local LLM, no Docker).
+fn run_builtin_agent(manifest: &AgentManifest, mut config: Config) -> Result<()> {
     // Resolve api_base and model: config.llm takes priority, else fall back to manifest
     let mut api_base = config
         .llm
@@ -3846,21 +3472,6 @@ fn run_builtin_agent(
     let mut audit = init_audit_logger();
     let session_id = uuid::Uuid::new_v4();
 
-    // Session-start gate: block if identity is Suspended or Revoked
-    if let Some(id) = identity_id {
-        check_identity_session_gate(id)?;
-    }
-
-    // Log session start
-    let _ = audit.log(
-        session_id,
-        &manifest.name,
-        "session:start",
-        &format!("builtin agent: {}", manifest.name),
-        audit_log::Decision::Allow,
-        identity_id,
-    );
-
     // Run the agent loop
     let rt = tokio::runtime::Runtime::new()?;
     let result = rt.block_on(agent_loop::run_agent_loop(loop_config))?;
@@ -3878,7 +3489,7 @@ fn run_builtin_agent(
             &decision.tool,
             &decision.args,
             audit_decision,
-            identity_id,
+            None,
         );
     }
 
@@ -3889,7 +3500,7 @@ fn run_builtin_agent(
         "session:end",
         &format!("{} allowed, {} blocked", result.allowed, result.blocked),
         audit_log::Decision::Allow,
-        identity_id,
+        None,
     );
 
     // Print summary
@@ -3917,11 +3528,6 @@ fn run_builtin_agent(
             );
             println!("{}", report);
         }
-    }
-
-    // Update trust score for this identity
-    if let Some(id) = identity_id {
-        apply_trust_score_update(id, &result.history);
     }
 
     // Cleanup workspace
@@ -4202,7 +3808,6 @@ fn cmd_identity(cmd: IdentityCommands) -> Result<()> {
                 created_at: now,
                 status: IdentityStatus::Active,
                 trust_score: 0,
-                consecutive_clean_sessions: 0,
             };
             // Persist to local SQLite database
             let db_path = dirs::data_dir()
@@ -4741,74 +4346,6 @@ fn cmd_credentials(cmd: CredentialsCommands) -> Result<()> {
     }
 }
 
-/// List workspace sizes in human-readable format.
-fn human_size(bytes: u64) -> String {
-    const UNITS: &[&str] = &["B", "KB", "MB", "GB"];
-    let mut size = bytes as f64;
-    let mut unit_idx = 0;
-    while size >= 1024.0 && unit_idx < UNITS.len() - 1 {
-        size /= 1024.0;
-        unit_idx += 1;
-    }
-    if unit_idx == 0 {
-        format!("{} {}", size as u64, UNITS[unit_idx])
-    } else {
-        format!("{:.1} {}", size, UNITS[unit_idx])
-    }
-}
-
-/// Format a `SystemTime` as a human-readable string.
-fn format_time(time: std::time::SystemTime) -> String {
-    let duration = time
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = duration.as_secs();
-    let datetime = chrono::DateTime::from_timestamp(secs as i64, 0).unwrap_or_default();
-    datetime.format("%Y-%m-%d %H:%M:%S").to_string()
-}
-
-/// Handle `agenticbox workspace` subcommands.
-fn cmd_workspace(cmd: WorkspaceCommands) -> Result<()> {
-    match cmd {
-        WorkspaceCommands::List { json } => {
-            let workspaces = sandbox_core::WorkspaceManager::list()?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&workspaces)?);
-            } else if workspaces.is_empty() {
-                println!(
-                    "{} No workspaces found. Run `agenticbox run <agent> --identity <name>` to create one.",
-                    console::style("→").dim()
-                );
-            } else {
-                println!(
-                    "{} Workspaces ({})\n",
-                    console::style("→").dim(),
-                    workspaces.len()
-                );
-                for ws in &workspaces {
-                    println!(
-                        "  {}  {}  {}  {}",
-                        console::style(&ws.identity).cyan(),
-                        human_size(ws.size),
-                        format_time(ws.modified),
-                        console::style(ws.path.display()).dim()
-                    );
-                }
-            }
-            Ok(())
-        }
-        WorkspaceCommands::Clean { name } => {
-            sandbox_core::WorkspaceManager::clean(&name)?;
-            println!(
-                "{} Workspace for '{}' removed.",
-                console::style("✓").green(),
-                name
-            );
-            Ok(())
-        }
-    }
-}
-
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
@@ -4945,7 +4482,6 @@ fn main() -> Result<()> {
         )?,
         Commands::Identity(cmd) => cmd_identity(cmd)?,
         Commands::Credentials(cmd) => cmd_credentials(cmd)?,
-        Commands::Workspace(cmd) => cmd_workspace(cmd)?,
         Commands::Dashboard { port } => {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(dashboard::serve_dashboard(port))?;
@@ -5282,43 +4818,5 @@ description = "No metadata"
     #[test]
     fn truncate_empty_string() {
         assert_eq!(truncate("", 10), "");
-    }
-
-    // ── Monitored policy tightening ──────────────────────────
-
-    #[test]
-    fn apply_monitored_policy_no_identity_returns_unchanged() {
-        let (term, fs, net, browser, domains) = apply_monitored_policy(
-            None,
-            true,
-            "readwrite".into(),
-            "full".into(),
-            true,
-            vec!["*".into()],
-        );
-        assert!(term);
-        assert_eq!(fs, "readwrite");
-        assert_eq!(net, "full");
-        assert!(browser);
-        assert_eq!(domains, vec!["*"]);
-    }
-
-    #[test]
-    fn apply_monitored_policy_active_identity_passes_through() {
-        // When no DB exists, the function returns originals unchanged
-        // (Same behavior as Active status — no DB = no Monitored status)
-        let (term, fs, net, browser, domains) = apply_monitored_policy(
-            Some(Uuid::nil()),
-            false,
-            "readwrite".into(),
-            "full".into(),
-            true,
-            vec!["*".into()],
-        );
-        assert!(!term);
-        assert_eq!(fs, "readwrite");
-        assert_eq!(net, "full");
-        assert!(browser);
-        assert_eq!(domains, vec!["*"]);
     }
 }

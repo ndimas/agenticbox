@@ -3904,7 +3904,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bollard",
- "dirs 5.0.1",
  "futures",
  "serde",
  "serde_json",
