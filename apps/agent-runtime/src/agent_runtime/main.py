@@ -1,8 +1,6 @@
-import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket
-from fastapi.responses import JSONResponse
 
 from agent_runtime.mcp_server import MCPServer
 from agent_runtime.tools.terminal import TerminalTool

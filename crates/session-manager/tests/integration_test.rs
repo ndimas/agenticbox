@@ -29,7 +29,7 @@ async fn create_and_retrieve_session() {
         .expect("failed to init session manager");
 
     let session = mgr
-        .create("test-agent".into(), test_model(), test_perms())
+        .create("test-agent".into(), test_model(), test_perms(), None)
         .await
         .expect("failed to create session");
 
@@ -50,15 +50,15 @@ async fn create_multiple_and_list() {
     let mgr = SessionManager::new(db_url).await.unwrap();
 
     let s1 = mgr
-        .create("agent-1".into(), test_model(), test_perms())
+        .create("agent-1".into(), test_model(), test_perms(), None)
         .await
         .unwrap();
     let s2 = mgr
-        .create("agent-2".into(), test_model(), test_perms())
+        .create("agent-2".into(), test_model(), test_perms(), None)
         .await
         .unwrap();
     let s3 = mgr
-        .create("agent-3".into(), test_model(), test_perms())
+        .create("agent-3".into(), test_model(), test_perms(), None)
         .await
         .unwrap();
 
@@ -95,7 +95,7 @@ async fn update_session_status() {
     let mgr = SessionManager::new(db_url).await.unwrap();
 
     let session = mgr
-        .create("status-test".into(), test_model(), test_perms())
+        .create("status-test".into(), test_model(), test_perms(), None)
         .await
         .unwrap();
 
@@ -140,7 +140,7 @@ async fn session_preserves_model_config() {
     };
 
     let session = mgr
-        .create("config-test".into(), model, test_perms())
+        .create("config-test".into(), model, test_perms(), None)
         .await
         .unwrap();
     let retrieved = mgr.get(session.id).await.unwrap().unwrap();
@@ -167,7 +167,7 @@ async fn session_preserves_permissions() {
     };
 
     let session = mgr
-        .create("perms-test".into(), test_model(), perms)
+        .create("perms-test".into(), test_model(), perms, None)
         .await
         .unwrap();
     let retrieved = mgr.get(session.id).await.unwrap().unwrap();

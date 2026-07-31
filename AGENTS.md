@@ -60,7 +60,7 @@ It has 🔴 NOW / 🟡 NEXT / 🔵 LATER with explicit **"Done when"** criteria.
 | Desktop | `cd apps/desktop && pnpm tauri dev` |
 | Agent runtime | `cd apps/agent-runtime && python -m agent_runtime.main` |
 
-**CI workflow:** [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) — runs fmt → clippy → build → test on every push/PR, then deploys `public/` to Pages on main.
+**CI workflow:** [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) — runs fmt → clippy → build → test on every push/PR. Pages deploy not yet automated.
 
 ---
 
@@ -81,10 +81,14 @@ Read the feature table in [`README.md`](./README.md) — it has ✅/⚠️/❌ f
 
 ### Testing
 
-**Current state:** zero tests. Every new feature should include them. Priority order:
-1. Unit tests for `policy-engine`, `fs-guard`, `network-control` (pure logic, no external deps)
-2. Integration tests for `sandbox-core` (container lifecycle)
-3. CLI tests with mock daemon
+**Current state:** 137+ Rust tests + 13 Python tests across all crates. All pass. Every new feature should include tests. Priority order:
+1. Unit tests for `policy-engine`, `fs-guard`, `network-control` (pure logic, no external deps) — ✅ done (20 + 12 + 10)
+2. Integration tests for `sandbox-core` (container lifecycle) — ✅ done
+3. CLI tests with mock daemon — ✅ done (12 integration tests)
+4. Python agent-runtime tests — ✅ done (13 tests, browser + HTTP policy)
+5. Audit log tests — ✅ done (22 tests, chain integrity + rotation + JSON serialization)
+6. Shared-types serde roundtrip tests — ✅ done (24 tests)
+7. Session-manager integration tests — ✅ done
 
 ---
 

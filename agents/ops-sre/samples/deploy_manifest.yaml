@@ -1,0 +1,55 @@
+# Hotfix Deploy Manifest — v2.14.4
+# WARNING: Deployment requires human approval.
+# This manifest is for reference only. Do NOT apply without authorization.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: production
+  labels:
+    app: api-gateway
+    version: 2.14.4-hotfix
+spec:
+  replicas: 8
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+        version: 2.14.4-hotfix
+    spec:
+      containers:
+      - name: api-gateway
+        image: company/api-gateway:2.14.4-hotfix
+        ports:
+        - containerPort: 443
+        - containerPort: 8080
+        env:
+        - name: CONNECTION_POOL_SIZE
+          value: "50"  # Rolled back from 200 to 50
+        - name: EXPERIMENTAL_CACHE
+          value: "false"  # Disabled
+        - name: LOG_LEVEL
+          value: "debug"
+        resources:
+          requests:
+            cpu: "4"
+            memory: "8Gi"
+          limits:
+            cpu: "8"
+            memory: "16Gi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5

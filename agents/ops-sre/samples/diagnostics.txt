@@ -1,0 +1,44 @@
+SYSTEM DIAGNOSTICS SNAPSHOT
+──────────────────────────────────────────
+Timestamp: 2026-07-12 14:30 UTC
+Host: prod-api-gateway-04 (us-east-1a)
+Uptime: 14 days, 6 hours, 23 minutes
+
+CPU:
+  ┌─────────────────────────────────────────────┐
+  │ CPU: 94.2% (user: 68.4%, sys: 24.1%, iowait: 1.7%) │
+  │ Load avg: 18.42, 14.10, 8.73 (8 vCPUs)     │
+  │ Top processes:                              │
+  │   PID  COMMAND          CPU%  MEM%          │
+  │   3842 nginx             42.3   2.1          │
+  │   2901 api-gateway       28.7   4.8          │
+  │   3102 user-service      12.4   6.2          │
+  │   4201 log-forwarder      5.1   1.2          │
+  │   1801 datadog-agent     3.8   0.9          │
+  └─────────────────────────────────────────────┘
+
+Memory:
+  Total: 32 GB
+  Used: 27.9 GB (87.3%)
+  Available: 4.1 GB
+  Swap: 2.1 GB / 8 GB (26.3%)
+
+Disk:
+  Filesystem      Size  Used Avail Use% Mounted on
+  /dev/sda1       200G  142G   58G  71% /
+  /dev/sdb1       500G  423G   77G  85% /var/log
+  /dev/sdc1       100G   12G   88G  12% /data
+
+Network:
+  eth0: RX 342 MB/s, TX 128 MB/s
+  eth0: TCP connections 8,432 (time_wait: 2,104)
+  lo: RX 12 MB/s, TX 12 MB/s
+
+Top Processes by CPU:
+  PID  COMMAND             CPU%  MEM%  STATE
+  3842 nginx               42.3   8.2  running
+  2901 api-gateway         28.7  12.4  running
+  3102 user-service        12.4   6.8  running
+  4201 log-forwarder        5.1   1.2  running
+  1801 datadog-agent        3.8   0.9  running
+  5501 billing-worker       2.1   4.2  sleeping (connection pool exhausted)

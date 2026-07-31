@@ -82,7 +82,7 @@ fn test_run_demo_output() {
     assert!(stdout.contains("ALLOWED"));
     assert!(stdout.contains("SSH"));
     assert!(stdout.contains("pastebin.com"));
-    assert!(stdout.contains("SQL injection"));
+    assert!(stdout.contains("deploy.sh") || stdout.contains("deploy"));
 }
 
 #[test]

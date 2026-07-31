@@ -6,6 +6,15 @@ name = "reviewer"
 description = "Automated code reviewer — reads code, posts review comments"
 command = "python3 review.py"
 
+[metadata]
+version = "0.1.0"
+author = "AgenticBox"
+license = "MIT"
+homepage = "https://github.com/morpheus-sh/agenticbox/tree/main/agents/reviewer"
+tags = ["code-review", "pr-review", "automation"]
+category = "engineering"
+min_agenticbox_version = "0.1.0"
+
 [model]
 provider = "openai"
 model = "gpt-4o"

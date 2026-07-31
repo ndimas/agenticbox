@@ -36,10 +36,36 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy (default members — daemon + crates, skip Tauri desktop)
-        run: cargo clippy -p daemon -p agenticbox-cli -p fs-guard -p model-router -p network-control -p policy-engine -p sandbox-core -p session-manager -p shared-types -p tool-protocol -p agent-loop -- -D warnings
+        run: cargo clippy -p daemon -p agenticbox-cli -p audit-log -p fs-guard -p model-router -p network-control -p policy-engine -p sandbox-core -p session-manager -p shared-types -p tool-protocol -p agent-loop -- -D warnings
 
       - name: Build (default members)
         run: cargo build --verbose
 
       - name: Run tests
         run: cargo test --verbose
+
+  # ─── Python agent-runtime: lint + test ──────────────────────────
+  python-ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/agent-runtime
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Lint with ruff
+        run: uv run ruff check src/ tests/
+
+      - name: Run tests
+        run: uv run python -m pytest tests/ -v

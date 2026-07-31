@@ -7,6 +7,15 @@ description = "Pi Agent — edge computing, IoT device management"
 
 command = "pi"
 
+[metadata]
+version = "0.1.0"
+author = "AgenticBox"
+license = "MIT"
+homepage = "https://github.com/morpheus-sh/agenticbox/tree/main/agents/pi"
+tags = ["edge", "iot", "coding"]
+category = "engineering"
+min_agenticbox_version = "0.1.0"
+
 [model]
 provider = "anthropic"
 model = "claude-sonnet-4-20250514"

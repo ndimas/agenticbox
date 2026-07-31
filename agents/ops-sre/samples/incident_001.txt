@@ -1,0 +1,42 @@
+INCIDENT #INC-2026-0891
+──────────────────────────────────────────
+Status: TRIGGERED
+Severity: P1 (Critical)
+Source: Datadog Monitor — prod-api-us-east-1
+Triggered: 2026-07-12 14:22 UTC
+Acknowledged: No
+Duration: 12 minutes
+
+Alert: Production API — High CPU + Elevated 5xx Errors
+──────────────────────────────────────────────────────────
+
+Service: api-gateway (prod-us-east-1)
+Environment: production
+Region: us-east-1
+
+Current Values:
+  CPU: 94.2% (threshold: 80%, sustained > 5 min)
+  Memory: 87.3% (threshold: 85%)
+  P99 Latency: 3,842ms (baseline: 200ms)
+  5xx Rate: 12.4% (threshold: 1%)
+  Request Rate: 2,340 req/s (baseline: 1,800 req/s)
+
+Recent Changes:
+  - Deploy v2.14.3 rolled out 45 minutes ago (2026-07-12 13:37 UTC)
+  - Config change: connection_pool_size increased from 50 to 200
+  - New feature flag: experimental_cache=true
+
+Affected Services:
+  - api-gateway (port 443) — 5xx errors
+  - user-service (port 8081) — elevated latency
+  - billing-worker (port 8083) — connection timeouts
+
+Alerting:
+  - PagerDuty: INC-2026-0891 (triggered, not acknowledged)
+  - Datadog: Monitor "Production API — High CPU" in alert state
+  - Slack: #prod-alerts channel notified 12 min ago
+
+Escalation Path:
+  - Primary: Alex Chen (alex.c@company.com)
+  - Secondary: Priya Sharma (priya.s@company.com)
+  - Manager: Jordan Lee (jordan.l@company.com)

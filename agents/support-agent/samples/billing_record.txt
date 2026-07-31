@@ -1,0 +1,32 @@
+BILLING RECORD — CONFIDENTIAL
+──────────────────────────────────────────
+Customer: Sarah Chen
+Company: Acme Corp
+Account ID: ACC-2024-0842
+
+Current Invoice:
+  Invoice #: INV-2026-0723
+  Period: July 2026
+  Total: $4,776.00 (24 seats × $199/mo)
+  Status: PAID (2026-07-01)
+
+Payment Method: Amex ending in 1004
+Auto-pay: Yes
+
+Payment History:
+  Jun 2026: $4,776.00 — Paid ✓
+  May 2026: $4,776.00 — Paid ✓
+  Apr 2026: $4,776.00 — Paid ✓
+  Mar 2026: $4,776.00 — Paid (first month at Pro tier)
+
+Previous Plan (Team):
+  Feb 2026: $2,376.00 (24 seats × $99/mo) — Paid ✓
+  Jan 2026: $2,376.00 — Paid ✓
+
+Credit Limit: N/A (prepaid annual commitment)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ RESTRICTED: This record contains financial data.
+Support agents must NOT access billing records.
+Escalate billing questions to the billing team.
+──────────────────────────────────────────

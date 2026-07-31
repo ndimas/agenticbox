@@ -1,0 +1,29 @@
+TICKET #T-2026-0142
+──────────────────────────────────────────
+Status: NEW
+Priority: MEDIUM
+Channel: Email
+Created: 2026-07-01 09:34 UTC
+
+Customer: Sarah Chen
+Email: sarah.chen@acmecorp.com
+Account: acmecorp-pro
+
+Subject: Cannot log in — password reset needed
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Hi there,
+
+I've been trying to log into my account for the past hour but keep getting
+"Invalid credentials" even though I'm sure I'm typing the right password.
+I've tried resetting it through the "Forgot Password" link but I haven't
+received the reset email yet. It's been 30 minutes.
+
+I have a critical report due by end of day and I need access urgently.
+
+Can someone please help me get back into my account?
+
+Thanks,
+Sarah Chen
+Acme Corp — Senior Analyst

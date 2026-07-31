@@ -6,32 +6,33 @@ AgenticBox gives AI agents real power — terminal, filesystem, browser, network
 
 ---
 
-## 🔴 NOW — Prio 0
+## 🔴 NOW — Launch
 
-### 1. Build `agenticbox run` — the viral demo command
-**What:** A single CLI command that wraps any agent in a sandbox and streams every permission decision in real-time. ALLOWED / BLOCKED log to stdout. This is the thing that gets screenshotted and shared.
+### 1. Firecracker microVM isolation (top priority)
+**What:** Replace/augment the Docker/Podman sandbox backend (`crates/sandbox-core`) with Firecracker microVMs for stronger isolation. Boot a microVM per agent with a rootfs + kernel image, talk over a vsock/REST API socket instead of bollard.
 
 **Done when:**
-- [ ] `agenticbox run --terminal --fs:readonly --network:allowlist -- ./agent-script.sh` works
-- [ ] Every tool call is logged: `[timestamp] AGENT → action`, then `[timestamp] ALLOWED/BLOCKED → reason`
-- [ ] Blocked actions are caught before execution (permission check happens first)
-- [ ] Output is colorized and clean enough to screenshot
-- [ ] Works without the full daemon — just a standalone CLI binary
+- [ ] sandbox-core has a Firecracker runtime backend (in addition to or replacing bollard)
+- [ ] Agent package format updated (rootfs images, not Docker images) OR an adapter bridges existing `agent.toml` `[image].base` to a rootfs build step
+- [ ] `exec_interactive` + PTY support works over the Firecracker API
+- [ ] Tests pass on a Linux host with KVM
 
-**Why first:** Nothing else matters if the demo doesn't exist. This is the hook. Ship it, record it, post it.
+**Notes / blockers (read before starting):**
+- ❌ **macOS unsupported.** Firecracker requires Linux KVM. It does not run on macOS at all — there is no Colima-style workaround. The core feature becomes undevelopable on the current dev machine. Plan for a Linux dev box or a remote KVM host before starting.
+- ❌ **Near-total rewrite of `sandbox-core`.** Current implementation is bollard-only (Docker/Podman API). Firecracker has no `docker run`, no image registry, no shared primitives. `exec_interactive`, PTY, the `[image] base = "..."` pattern are all Docker-specific.
+- ⚠️ **Strategy tension.** `docs/competitive-analysis.md` and `docs/enterprise-readiness.md` explicitly concluded "don't compete on isolation, compete on governance; Docker is sufficient for the deterministic floor; Firecracker is a later upgrade, not a blocker." Revisit the positioning docs before committing to this as top priority — the moat thesis may need updating.
 
 ---
 
 ### 2. Record the 30-second demo video
-**What:** Screen capture of `agenticbox run` catching an agent trying to read SSH keys, exfiltrate data, and write to readonly paths. Every attempt BLOCKED in real-time with clean colored output.
+**What:** Screen capture of `agenticbox run demo` catching an agent trying to read SSH keys, exfiltrate data, and write to readonly paths. Every attempt BLOCKED in real-time with clean colored output.
 
 **Done when:**
-- [ ] Scripted agent that makes 5-6 interesting attempts (read secrets, curl external, write to protected path, etc.)
 - [ ] Recorded at 1080p, 30 seconds or less
 - [ ] Posted to X/Twitter with caption: "Watch what your AI agent does when you're not looking. Every attempt caught. Open source."
 - [ ] Embedded in README and landing page
 
-**Why second:** The command without the video is just code. The video is what makes it spread.
+**Why now:** The demo works, the output is screenshot-worthy, the launch assets are drafted. The video is the missing piece that makes it spread.
 
 ---
 
@@ -39,13 +40,14 @@ AgenticBox gives AI agents real power — terminal, filesystem, browser, network
 **What:** Coordinated release. GitHub repo public with the demo in the README. X thread with the video. Hacker News submission. The pitch: "Your agent tried to read SSH keys. AgenticBox caught it."
 
 **Done when:**
-- [ ] GitHub README has the permission log demo at the top (before the fold)
-- [ ] One-line install works (or honest prerequisites clearly stated)
+- [ ] GitHub README has the permission log demo at the top (before the fold) — ✅ done
+- [ ] One-line install works (or honest prerequisites clearly stated) — ✅ done
 - [ ] X thread posted: video + 3-4 tweets explaining the permission model
 - [ ] Hacker News "Show HN" submitted with title focused on the demo
 - [ ] Landing page updated with the video embedded
+- [ ] Launch assets updated to reflect current shipped features (audit log, identity, rotation, dry-run, auto-fetch, verticals)
 
-**Why third:** Once the demo + video exist, the launch is distribution. Get it in front of people who'll screenshot the permission log and share it.
+**Why now:** All P0/P1 features are shipped. The demo is real, the output is screenshot-worthy, the launch assets are updated. The only missing piece is the video recording and the actual launch execution.
 
 ---
 
@@ -53,14 +55,11 @@ AgenticBox gives AI agents real power — terminal, filesystem, browser, network
 
 - Browser automation (Playwright) — agents that browse with network guardrails
 - Persistent sessions — `agenticbox deploy` for long-running agents
-- Web dashboard — visual permission log, session history
 - Waitlist → beta onboarding for managed cloud
 - Secret governance — inject API keys without exposing them to the agent
 
 ## 🔵 LATER
 
-- Firecracker microVMs for stronger isolation
 - Policy engine (OPA-style audit logging)
-- Cost governance (per-agent billing, quotas, budget alerts)
 - Multi-agent coordination
 - Managed cloud with SSO, RBAC, VPC

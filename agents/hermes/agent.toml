@@ -7,6 +7,15 @@ description = "Hermes Agent — autonomous coding & tool use (Nous Research)"
 
 command = "hermes"
 
+[metadata]
+version = "0.1.0"
+author = "AgenticBox"
+license = "MIT"
+homepage = "https://github.com/morpheus-sh/agenticbox/tree/main/agents/hermes"
+tags = ["coding", "tool-use", "autonomous"]
+category = "engineering"
+min_agenticbox_version = "0.1.0"
+
 [model]
 provider = "openrouter"
 model = "anthropic/claude-sonnet-4"
