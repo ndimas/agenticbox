@@ -1,0 +1,27 @@
+# AgenticBox Brain — example config.
+# Copy to ~/.agenticbox/brain.toml (or point BRAIN_CONFIG at it) and run:
+#   cargo run -p brain --bin brain-ingest -- --config brain.toml
+#   cargo run -p brain --bin brain-mcp -- --config brain.toml   # MCP server (stdio)
+
+[store]
+database_url = "sqlite:data/brain.db?mode=rwc"
+
+# DeepSeek-conditional defaults. Every role is a config entry, so a future
+# provider can take over any role without a rebuild.
+[models]
+chat = "deepseek-v4"      # distill + rerank + synthesize
+embed = "qwen-embed"      # DeepSeek serves no embeddings API — always pluggable
+
+[litellm]
+base_url = "http://192.168.1.13:4000/v1"
+api_key = "sk-no-key-needed"
+
+[connectors.github]
+owner = "morpheus-sh"
+repo = "agenticbox"
+token_env = "GH_TOKEN"    # optional; unauthenticated = 60 req/hr
+# project = "agenticbox-core"
+
+[connectors.audit]
+path = "~/.agenticbox/audit/audit.jsonl"   # the crown jewel: memory with receipts
+project = "agenticbox-core"

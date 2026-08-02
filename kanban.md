@@ -37,6 +37,8 @@ AgenticBox gives AI agents real power — terminal, filesystem, browser, network
 
 ## 🟡 NEXT
 
+- **Company Brain (Phase 0 scaffold — `crates/brain`)** — one query surface over GitHub, Slack, docs, and the audit trail (memory with receipts). DeepSeek-conditional (byte-stable prompt prefixes + cache-hit accounting), provider-extendable (`BrainProvider` trait). MCP server (`brain_search`, `brain_who_knows`, `brain_recent_prs`, `brain_audit`) + `brain-ingest`.
+  - **Done when:** ⚪ dogfooded internally (brain answers real daily questions) · ⚪ cache hit-ratio dashboard live from `brain-ingest` · ⚪ Slack/Discord connector with distillation + bursting · ⚪ identity-scoped guardrails (Phase 2)
 - Browser automation (Playwright) — agents that browse with network guardrails
 - Persistent sessions — `agenticbox deploy` for long-running agents
 - Waitlist → beta onboarding for managed cloud
