@@ -2319,6 +2319,12 @@ fn cmd_run_named_agent(
     };
 
     let spec = HarnessSpec {
+        workspace_mounts: manifest
+            .workspace
+            .files
+            .iter()
+            .map(|f| (f.source.clone(), f.dest.clone()))
+            .collect(),
         image: manifest.image.base.clone(),
         install_cmd: if manifest.image.setup.is_empty() {
             None
@@ -2565,7 +2571,7 @@ fn run_real_sandbox(spec: &SandboxSpec) -> Result<i64> {
 
         // Build mount: current directory → /workspace
         let cwd = std::env::current_dir()?;
-        let mounts = if spec.fs_mode == "none" {
+        let mut mounts = if spec.fs_mode == "none" {
             vec![]
         } else {
             vec![sandbox_core::SandboxMount {
@@ -2574,6 +2580,7 @@ fn run_real_sandbox(spec: &SandboxSpec) -> Result<i64> {
                 read_only: spec.fs_mode == "readonly",
             }]
         };
+        // workspace mounts unsupported in this path
 
         let network_docker = if spec.network_mode == "offline" {
             "none"
@@ -2636,6 +2643,9 @@ struct HarnessSpec {
     fs_mode: String,
     network_mode: String,
     env: HashMap<String, String>,
+    /// (host_source, container_dest) pairs mounted read-only into the sandbox
+    #[allow(dead_code)]
+    workspace_mounts: Vec<(String, String)>,
 }
 
 fn run_harness_sandbox(spec: &HarnessSpec) -> Result<i64> {
@@ -2667,7 +2677,7 @@ fn run_harness_sandbox(spec: &HarnessSpec) -> Result<i64> {
         }
 
         let cwd = std::env::current_dir()?;
-        let mounts = if spec.fs_mode == "none" {
+        let mut mounts = if spec.fs_mode == "none" {
             vec![]
         } else {
             vec![sandbox_core::SandboxMount {
@@ -2676,6 +2686,23 @@ fn run_harness_sandbox(spec: &HarnessSpec) -> Result<i64> {
                 read_only: spec.fs_mode == "readonly",
             }]
         };
+        // Additional per-manifest workspace file mounts (always read-only)
+        for (src, dest) in &spec.workspace_mounts {
+            let p = std::path::Path::new(src);
+            if p.exists() {
+                mounts.push(sandbox_core::SandboxMount {
+                    source: src.clone(),
+                    target: dest.clone(),
+                    read_only: true,
+                });
+            } else {
+                eprintln!(
+                    "  {}  workspace mount source missing: {}",
+                    console::style("⚠").yellow(),
+                    src
+                );
+            }
+        }
 
         let network_docker = if spec.network_mode == "offline" {
             "none"
