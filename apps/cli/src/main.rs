@@ -194,6 +194,47 @@ enum Commands {
         #[arg(long, default_value = "gpt-4o")]
         model: String,
     },
+Audit {
+        /// Show only the last N entries
+        #[arg(long, default_value = "20")]
+        recent: usize,
+
+        /// Filter by agent name
+        #[arg(long)]
+        agent: Option<String>,
+
+        /// Verify the integrity of the audit chain (tamper detection)
+        #[arg(long)]
+        verify: bool,
+
+        /// Show summary counts (allow/deny totals) instead of entries
+        #[arg(long)]
+        summary: bool,
+
+        /// Output as JSON (for SIEM integration)
+        #[arg(long)]
+        json: bool,
+
+        /// Show the audit log file path
+        #[arg(long)]
+        path: bool,
+
+        /// Rotate the audit log (archive current file, start fresh)
+        #[arg(long)]
+        rotate: bool,
+
+        /// Maximum size (in MB) before auto-rotation triggers (default: 10)
+        #[arg(long, default_value = "10")]
+        rotate_max_size_mb: u64,
+
+        /// Maximum age (in days) before auto-rotation triggers (default: 30)
+        #[arg(long, default_value = "30")]
+        rotate_max_age_days: u64,
+
+        /// Number of rotated files to keep (default: 5)
+        #[arg(long, default_value = "5")]
+        rotate_max_files: usize,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
@@ -2547,6 +2588,22 @@ fn main() -> Result<()> {
     let config = load_config().unwrap_or_default();
 
     match cli.command {
+
+        Commands::Audit {
+            recent,
+            agent,
+            verify,
+            summary,
+            json,
+            path,
+            rotate,
+            rotate_max_size_mb,
+            rotate_max_age_days,
+            rotate_max_files,
+        } => cmd_audit(
+            recent, agent, verify, summary, json, path, rotate,
+            rotate_max_size_mb, rotate_max_age_days, rotate_max_files,
+        )?,
         Commands::Setup {
             non_interactive,
             reset,
@@ -2653,6 +2710,285 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+
+// ─── Audit trail (PR: feat/audit-trail) ─────────────────────
+
+// `init_audit_logger` + `audit_log_decision` are the write-side API consumed by the
+// identity PR (next in the thin-MVP series); the audit subcommand is read-side only.
+#[allow(dead_code)]
+fn init_audit_logger() -> audit_log::AuditLogger {
+    let audit_path = audit_log::default_audit_log_path();
+    match audit_log::AuditLogger::open(&audit_path) {
+        Ok(logger) => logger,
+        Err(e) => {
+            eprintln!("[audit-log] Warning: log corrupted ({}), starting fresh", e);
+            let backup = audit_path.with_extension("log.corrupt");
+            let _ = std::fs::rename(&audit_path, &backup);
+            audit_log::AuditLogger::open(&audit_path)
+                .expect("Failed to create fresh audit log after backup")
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn audit_log_decision(
+    audit: &mut audit_log::AuditLogger,
+    session_id: uuid::Uuid,
+    agent_name: &str,
+    action: &str,
+    resource: &str,
+    decision: &Decision,
+) {
+    let audit_decision = match decision {
+        Decision::Allowed => audit_log::Decision::Allow,
+        Decision::Blocked(reason) => audit_log::Decision::Deny(reason.clone()),
+    };
+    let _ = audit.log(
+        session_id,
+        agent_name,
+        action,
+        resource,
+        audit_decision,
+        None,
+    );
+}
+
+#[allow(clippy::too_many_arguments)] // CLI flags mirror clap args 1:1
+fn cmd_audit(
+    recent: usize,
+    agent: Option<String>,
+    verify: bool,
+    summary: bool,
+    json: bool,
+    path_only: bool,
+    rotate: bool,
+    rotate_max_size_mb: u64,
+    rotate_max_age_days: u64,
+    rotate_max_files: usize,
+) -> Result<()> {
+    let log_path = audit_log::default_audit_log_path();
+
+    if path_only {
+        println!("{}", log_path.display());
+        return Ok(());
+    }
+
+    // Build rotation config
+    let rotation_config = audit_log::RotationConfig {
+        max_size_bytes: rotate_max_size_mb * 1024 * 1024,
+        max_age_days: rotate_max_age_days,
+        max_files: rotate_max_files,
+    };
+
+    // Handle --rotate: manually rotate the log
+    if rotate {
+        let mut logger = audit_log::AuditLogger::open_with_rotation(&log_path, rotation_config)?;
+        let count = logger.rotate_now()?;
+        if json {
+            let result = serde_json::json!({
+                "status": "rotated",
+                "entries_archived": count,
+                "path": log_path.to_string_lossy().to_string(),
+            });
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        } else {
+            println!(
+                "  {} Audit log rotated — {} entries archived",
+                console::style("✓").green().bold(),
+                console::style(count).cyan()
+            );
+            println!(
+                "  {} Fresh log started at: {}",
+                console::style("→").dim(),
+                console::style(log_path.display()).cyan()
+            );
+        }
+        return Ok(());
+    }
+
+    let logger = audit_log::AuditLogger::open_with_rotation(&log_path, rotation_config)?;
+
+    if verify {
+        match logger.verify_chain() {
+            Ok(()) => {
+                if json {
+                    let result = serde_json::json!({
+                        "status": "ok",
+                        "entries": logger.read_all()?.len(),
+                        "path": log_path.to_string_lossy().to_string(),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!(
+                        "  {} Audit chain verified — {} entries, no tampering detected",
+                        console::style("✓").green().bold(),
+                        console::style(logger.read_all()?.len()).cyan()
+                    );
+                    println!(
+                        "  {} {}",
+                        console::style("→").dim(),
+                        console::style(log_path.display()).dim()
+                    );
+                }
+            }
+            Err(audit_log::AuditError::ChainBroken {
+                seq,
+                expected,
+                actual,
+            }) => {
+                if json {
+                    let result = serde_json::json!({
+                        "status": "broken",
+                        "broken_at_seq": seq,
+                        "expected_hash": expected,
+                        "actual_hash": actual,
+                        "path": log_path.to_string_lossy().to_string(),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!(
+                        "  {} Audit chain BROKEN at entry #{}\n    expected: {}\n    actual:   {}",
+                        console::style("✗").red().bold(),
+                        console::style(seq).red().bold(),
+                        console::style(&expected).dim(),
+                        console::style(&actual).red(),
+                    );
+                }
+            }
+            Err(e) => {
+                anyhow::bail!("Audit verification failed: {}", e);
+            }
+        }
+        return Ok(());
+    }
+
+    if summary {
+        let counts = logger.count_by_decision()?;
+        if json {
+            let output = serde_json::json!({
+                "total": counts.total,
+                "allowed": counts.allowed,
+                "denied": counts.denied,
+                "path": log_path.to_string_lossy().to_string(),
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            println!(
+                "{} {}",
+                console::style("Audit Log Summary").bold(),
+                console::style(format!("({})", counts.total)).dim()
+            );
+            println!(
+                "{}",
+                console::style("──────────────────────────────────────────").dim()
+            );
+            println!(
+                "  {} {} allowed",
+                console::style("✓").green().bold(),
+                console::style(counts.allowed).green().bold()
+            );
+            println!(
+                "  {} {} blocked",
+                console::style("✗").red().bold(),
+                console::style(counts.denied).red().bold()
+            );
+            println!(
+                "  {} {} total",
+                console::style("•").dim(),
+                console::style(counts.total).cyan()
+            );
+            println!();
+            println!(
+                "  {} {}",
+                console::style("Log file:").dim(),
+                console::style(log_path.display()).cyan()
+            );
+            return Ok(());
+        }
+        return Ok(());
+    }
+
+    let entries = if let Some(ref agent_name) = agent {
+        logger.filter_by_agent(agent_name)?
+    } else {
+        logger.read_recent(recent)?
+    };
+
+    if entries.is_empty() {
+        if json {
+            println!("[]");
+        } else {
+            println!("{} No audit entries found.", console::style("→").dim());
+            println!(
+                "  Run {} to generate entries.",
+                console::style("agenticbox run demo").cyan()
+            );
+        }
+        return Ok(());
+    }
+
+    if json {
+        // JSON output: serialize entries as an array
+        println!("{}", serde_json::to_string_pretty(&entries)?);
+    } else {
+        println!(
+            "{} {}",
+            console::style("Audit Log").bold(),
+            console::style(format!(
+                "({} entries, showing last {})",
+                logger.read_all()?.len(),
+                entries.len()
+            ))
+            .dim()
+        );
+        println!(
+            "{}",
+            console::style(
+                "──────────────────────────────────────────────────────────────────────────"
+            )
+            .dim()
+        );
+
+        for entry in &entries {
+            let decision_str = if entry.decision.is_allowed() {
+                console::style("ALLOWED").green().bold()
+            } else {
+                console::style("BLOCKED").red().bold()
+            };
+            let reason = entry.decision.reason();
+            println!(
+                "{} {} {} {} {} {}",
+                console::style(format!("#{}", entry.seq)).dim(),
+                console::style(entry.timestamp.format("%H:%M:%S").to_string()).cyan(),
+                console::style(&entry.agent_name).green(),
+                console::style(&entry.action).yellow(),
+                decision_str,
+                console::style(reason).dim(),
+            );
+            if !entry.resource.is_empty() {
+                println!(
+                    "  {} {}",
+                    console::style("resource:").dim(),
+                    console::style(&entry.resource).dim()
+                );
+            }
+        }
+
+        println!();
+        println!(
+            "  {} Verify integrity: {}",
+            console::style("→").dim(),
+            console::style("agenticbox audit --verify").cyan()
+        );
+        println!(
+            "  {} Summary: {}",
+            console::style("→").dim(),
+            console::style("agenticbox audit --summary").cyan()
+        );
+    }
+
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;

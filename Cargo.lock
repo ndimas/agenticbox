@@ -31,6 +31,7 @@ version = "0.1.0"
 dependencies = [
  "agent-loop",
  "anyhow",
+ "audit-log",
  "chrono",
  "clap",
  "console",
@@ -204,6 +205,22 @@ name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
+
+[[package]]
+name = "audit-log"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "dirs 5.0.1",
+ "fs2",
+ "serde",
+ "serde_json",
+ "shared-types",
+ "thiserror 1.0.69",
+ "tracing",
+ "uuid",
+ "walkdir",
+]
 
 [[package]]
 name = "autocfg"
@@ -1346,6 +1363,16 @@ dependencies = [
  "shared-types",
  "thiserror 1.0.69",
  "tracing",
+]
+
+[[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi",
 ]
 
 [[package]]
