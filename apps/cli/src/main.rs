@@ -194,7 +194,7 @@ enum Commands {
         #[arg(long, default_value = "gpt-4o")]
         model: String,
     },
-Audit {
+    Audit {
         /// Show only the last N entries
         #[arg(long, default_value = "20")]
         recent: usize,
@@ -2588,7 +2588,6 @@ fn main() -> Result<()> {
     let config = load_config().unwrap_or_default();
 
     match cli.command {
-
         Commands::Audit {
             recent,
             agent,
@@ -2601,8 +2600,16 @@ fn main() -> Result<()> {
             rotate_max_age_days,
             rotate_max_files,
         } => cmd_audit(
-            recent, agent, verify, summary, json, path, rotate,
-            rotate_max_size_mb, rotate_max_age_days, rotate_max_files,
+            recent,
+            agent,
+            verify,
+            summary,
+            json,
+            path,
+            rotate,
+            rotate_max_size_mb,
+            rotate_max_age_days,
+            rotate_max_files,
         )?,
         Commands::Setup {
             non_interactive,
@@ -2709,7 +2716,6 @@ fn main() -> Result<()> {
     }
     Ok(())
 }
-
 
 // ─── Audit trail (PR: feat/audit-trail) ─────────────────────
 
