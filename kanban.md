@@ -60,7 +60,6 @@ AgenticBox gives AI agents real power — terminal, filesystem, browser, network
 ## 🔵 LATER
 
 - Firecracker microVMs for stronger isolation
-- Policy engine (OPA-style audit logging)
 - Cost governance (per-agent billing, quotas, budget alerts)
 - Multi-agent coordination
 - Managed cloud with SSO, RBAC, VPC

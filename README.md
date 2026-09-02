@@ -69,6 +69,7 @@ The agent CLI runs **inside** a sandboxed container. The host relays stdin/stdou
 | **Permission Guards** | ✅ Terminal, filesystem (RO/RW), network (allowlist/localhost/offline) |
 | **Filesystem Governance** | ✅ Path resolution with escape prevention, protected paths (SSH keys, AWS creds) |
 | **Network Control** | ✅ Domain allowlist enforcement |
+| **Audit Trail** | ✅ `agenticbox audit` — hash-chained tamper-evident log, chain verification, summary, JSON export (SIEM), rotation |
 | **Agent Packages** | ✅ TOML manifests with `[image]` section for container + install steps |
 | **Built-in Demo** | ✅ `agenticbox run demo` — scripted permission guard showcase |
 | **Session Management** | ⚠️ SQLite-backed, exists but daemon doesn't create containers yet |

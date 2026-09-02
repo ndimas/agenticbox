@@ -5,6 +5,15 @@ All notable changes to AgenticBox are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Audit log crate (`audit-log`)** — append-only, hash-chained log (each entry carries `prev_hash`/`self_hash`); rotation by size/age/file-count; corrupted-log recovery with backup
+- **Trust-delta scoring** — `compute_trust_delta()` in the agent loop derives allow/deny trust signals from policy decisions
+- **`agenticbox audit` CLI** — view recent entries, filter by agent, chain verification (`--verify`, tamper detection), summary counts, JSON output for SIEM integration, and manual/auto rotation flags
+
+---
+
 ## [0.1.0] — 2026-06-20
 
 ### Added
