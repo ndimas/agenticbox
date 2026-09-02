@@ -37,6 +37,18 @@ pub enum AuditError {
         expected: String,
         actual: String,
     },
+    #[error(
+        "audit log tail is corrupt (unparseable last line, likely a partial write from a crash): {line}"
+    )]
+    CorruptTail {
+        /// Prefix of the corrupt line (for diagnostics; may be truncated)
+        line: String,
+    },
+    /// A malformed line was found mid-file. Unlike a trailing partial line
+    /// (which can result from a crash mid-write), this indicates real
+    /// corruption — the log must be repaired before it can be read.
+    #[error("audit log corrupt at line {line_no}: {detail}")]
+    CorruptLine { line_no: usize, detail: String },
 }
 
 /// The outcome of a policy evaluation — mirrors `PolicyDecision` but is
@@ -92,7 +104,11 @@ pub struct AuditEntry {
     pub resource: String,
     /// The policy decision
     pub decision: Decision,
-    /// SHA-256 hash of the previous entry's `self_hash` (chain link)
+    /// SHA-256 hash of the previous entry's `self_hash` (chain link).
+    /// For the first entry of a *rotated* file, this is `CHAIN:<hash>` where
+    /// `<hash>` is the last `self_hash` of the rotated file, linking the
+    /// rotation boundary into the chain so rotated files cannot be reordered,
+    /// swapped, or deleted undetected.
     pub prev_hash: String,
     /// SHA-256 hash of this entry's canonical JSON (computed after all other fields)
     pub self_hash: String,
@@ -252,6 +268,10 @@ pub struct AuditLogger {
     next_seq: u64,
     /// Rotation configuration (defaults: 10 MB, 30 days, 5 files)
     rotation: RotationConfig,
+    /// Hash of the rotated file's chain tip, set by `rotate_locked` and
+    /// consumed by the first `log()` call on the fresh file (`CHAIN:<hash>`
+    /// prev_hash), so the rotation boundary is tamper-evident.
+    pending_chain_link: Option<String>,
 }
 
 /// Where the audit log lives by default.
@@ -296,6 +316,7 @@ impl AuditLogger {
             last_hash,
             next_seq,
             rotation,
+            pending_chain_link: None,
         })
     }
 
@@ -327,17 +348,12 @@ impl AuditLogger {
     ) -> Result<AuditEntry, AuditError> {
         use std::io::{Read, Seek, SeekFrom};
 
-        // Check if rotation is needed before opening the file for writing.
-        // We check size/age first, then acquire the lock for the actual rotation.
-        if self.should_rotate() {
-            self.rotate()?;
-        }
-
-        // Open the file in read-write mode (NOT append mode) and acquire an
-        // exclusive lock. On Windows, append mode can interfere with seeking
-        // back to read, so we use read-write mode and seek to end for writes.
-        // The lock is held for the duration of this call, preventing other
-        // processes from interleaving writes.
+        // Rotation (if needed) happens after acquiring the lock — doing it
+        // before would race a concurrent writer into the renamed file. We
+        // open the CURRENT path first; if rotation is required we release the
+        // lock (Windows cannot rename an open, locked file), rotate, and
+        // reopen the fresh path.
+        let mut content = String::new();
         let mut file = OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -346,20 +362,69 @@ impl AuditLogger {
             .open(&self.path)?;
         file.lock_exclusive()?;
 
-        // Re-read the chain tail from the *same* locked handle. We can't open
-        // a separate read handle because the exclusive lock blocks other opens
-        // on Windows. Seek to start, read all content, extract the last entry.
-        file.seek(SeekFrom::Start(0))?;
-        let mut content = String::new();
-        file.read_to_string(&mut content)?;
-        let last_entry = content
+        if self.should_rotate() {
+            // Rotation must rename the file, which requires releasing our lock
+            // (Windows cannot rename an open, locked file). Sequence:
+            // unlock → rename → read chain tip from the RENAMED file (exact,
+            // includes any entry that landed before the rename) → prune →
+            // reopen the fresh path and continue. The common case (a single
+            // logging process) is fully protected by the lock up to the
+            // rename; a second overlapping writer would rotate its own copy
+            // into the next rotation number rather than corrupt the chain.
+            let _ = file.unlock();
+            drop(file);
+            self.rotate_locked()?;
+            // Reopen the fresh (empty) log file for the new entry.
+            file = OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .read(true)
+                .write(true)
+                .open(&self.path)?;
+            file.lock_exclusive()?;
+        } else {
+            // Re-read the chain tail from the *same* locked handle. We can't
+            // open a separate read handle because the exclusive lock blocks
+            // other opens on Windows. Seek to start, read all content.
+            file.seek(SeekFrom::Start(0))?;
+            file.read_to_string(&mut content)?;
+        }
+        let last_line = content
             .lines()
             .rfind(|l| !l.trim().is_empty())
-            .and_then(|line| serde_json::from_str::<AuditEntry>(line).ok());
+            .map(|l| l.to_string());
+        let last_entry = match &last_line {
+            Some(line) => match serde_json::from_str::<AuditEntry>(line) {
+                Ok(entry) => Some(entry),
+                // A trailing partial line is a crash artifact — the reader
+                // skips it, so the chain must continue from the last VALID
+                // entry, not from genesis. Refusing to append (CorruptTail)
+                // would wedge the logger forever; instead find the last
+                // parseable line and link to it. If the file has NO valid
+                // entries at all, genesis is correct (fresh log).
+                Err(_) => {
+                    let valid: Vec<&str> = content
+                        .lines()
+                        .filter(|l| !l.trim().is_empty())
+                        .filter(|l| serde_json::from_str::<AuditEntry>(l).is_ok())
+                        .collect();
+                    match valid.last() {
+                        Some(l) => serde_json::from_str::<AuditEntry>(l).ok(),
+                        None => None,
+                    }
+                }
+            },
+            None => None,
+        };
 
         let (prev_hash, seq) = match last_entry {
             Some(ref entry) => (entry.self_hash.clone(), entry.seq + 1),
-            None => ("genesis".to_string(), 1u64),
+            None => match self.pending_chain_link.take() {
+                // First entry after a rotation: link to the rotated file's
+                // chain tip so the rotation boundary is tamper-evident.
+                Some(link) => (format!("CHAIN:{}", link), 1u64),
+                None => ("genesis".to_string(), 1u64),
+            },
         };
 
         let entry = AuditEntry {
@@ -381,9 +446,20 @@ impl AuditLogger {
         // Seek to end before writing (we're in read-write mode, not append mode).
         // This ensures we always append to the end of the file.
         file.seek(SeekFrom::End(0))?;
+        // If the file does not end with a newline, a crash mid-writeln left a
+        // partial line. Truncate it (reader would skip it anyway) so the new
+        // entry cannot be GLUED onto it and vanish from the line-based view.
+        if !content.is_empty() && !content.ends_with('\n') {
+            let truncate_to = content.rfind('\n').map_or(0, |pos| pos + 1);
+            file.set_len(truncate_to as u64)?;
+            file.seek(SeekFrom::Start(truncate_to as u64))?;
+        }
         let line = serde_json::to_string(&entry)?;
         writeln!(&file, "{}", line)?;
         file.flush()?;
+        // Make the write durable BEFORE releasing the lock — flush() on a raw
+        // File is a no-op. Without fsync, a crash can leave a partial line.
+        file.sync_data()?;
 
         // Release the lock
         let _ = file.unlock();
@@ -495,6 +571,108 @@ impl AuditLogger {
     /// Returns Ok(()) if the chain is unbroken, or an error describing
     /// where the chain was broken.
     pub fn verify_chain(&self) -> Result<(), AuditError> {
+        self.verify_chain_ext(None)
+    }
+
+    /// Like `verify_chain`, but additionally checks the cross-rotation link:
+    /// the first entry of the CURRENT file must be `CHAIN:<tip>` where `<tip>`
+    /// is the last `self_hash` of the most recent rotated file (when one
+    /// exists). With `rotated_dir` = None, only the current file is checked
+    /// (the in-memory `pending_chain_link` is not needed — the CHAIN: link is
+    /// validated against the rotated files on disk, discovered by name pattern).
+    pub fn verify_chain_with_rotations(&self) -> Result<(), AuditError> {
+        self.verify_chain_ext(Some(self.path.as_path()))
+    }
+
+    fn verify_chain_ext(&self, rotated_context: Option<&Path>) -> Result<(), AuditError> {
+        // Cross-rotation checks: verify each rotated file's own chain, then
+        // require the current file's first entry to link to the newest tip
+        // (only when rotated files actually exist — a never-rotated log just
+        // starts at genesis).
+        if let Some(ctx) = rotated_context {
+            // Verify every rotated file's own chain, in rotation order. The
+            // OLDEST KEPT rotated file is the trust root: its first entry may
+            // start at plain "genesis" OR carry CHAIN:<hash> pointing to a
+            // predecessor that prune_rotated_files already deleted (history
+            // beyond max_files is unverifiable by design). Every LATER file
+            // must link exactly to the previous file's tip, making the whole
+            // retained history one long verifiable chain — deleting,
+            // reordering, or tampering with any kept rotated file is detected.
+            let rotated_paths = list_rotated_files_oldest_first(ctx);
+            let mut prev_tip: Option<String> = None;
+            for (idx, rp) in rotated_paths.iter().enumerate() {
+                // First retained file = trust root (head may link to a pruned
+                // predecessor); every later file must link exactly to the
+                // previous file's tip via CHAIN:<hash>.
+                let entries = read_all_entries(rp)?;
+                let mut expected_prev: Option<String> = match (idx, &prev_tip) {
+                    (0, _) => None,
+                    (_, Some(tip)) => Some(format!("CHAIN:{}", tip)),
+                    (_, None) => Some("genesis".to_string()),
+                };
+                for entry in &entries {
+                    if let Some(exp) = &expected_prev {
+                        if entry.prev_hash != *exp {
+                            return Err(AuditError::ChainBroken {
+                                seq: entry.seq,
+                                expected: exp.clone(),
+                                actual: entry.prev_hash.clone(),
+                            });
+                        }
+                    }
+                    let computed = entry.compute_hash();
+                    if computed != entry.self_hash {
+                        return Err(AuditError::ChainBroken {
+                            seq: entry.seq,
+                            expected: entry.self_hash.clone(),
+                            actual: computed,
+                        });
+                    }
+                    expected_prev = Some(entry.self_hash.clone());
+                }
+                prev_tip = entries.last().map(|e| e.self_hash.clone());
+            }
+            let has_rotations = !rotated_paths.is_empty();
+            let entries = self.read_all()?;
+            let mut expected_prev = "genesis".to_string();
+
+            for (i, entry) in entries.iter().enumerate() {
+                if i == 0 && has_rotations {
+                    // First entry of a continued log must link to the
+                    // rotated file's chain tip.
+                    let tip = newest_rotated_tip(ctx).unwrap_or_else(|| "genesis".to_string());
+                    match entry.prev_hash.strip_prefix("CHAIN:") {
+                        Some(rest) if rest == tip => {}
+                        _ => {
+                            return Err(AuditError::ChainBroken {
+                                seq: entry.seq,
+                                expected: format!("CHAIN:{}", tip),
+                                actual: entry.prev_hash.clone(),
+                            });
+                        }
+                    }
+                } else {
+                    if entry.prev_hash != expected_prev {
+                        return Err(AuditError::ChainBroken {
+                            seq: entry.seq,
+                            expected: expected_prev,
+                            actual: entry.prev_hash.clone(),
+                        });
+                    }
+                }
+                let computed = entry.compute_hash();
+                if computed != entry.self_hash {
+                    return Err(AuditError::ChainBroken {
+                        seq: entry.seq,
+                        expected: entry.self_hash.clone(),
+                        actual: computed,
+                    });
+                }
+                expected_prev = entry.self_hash.clone();
+            }
+            return Ok(());
+        }
+
         let entries = self.read_all()?;
         let mut expected_prev = "genesis".to_string();
 
@@ -584,10 +762,27 @@ impl AuditLogger {
     ///
     /// After rotation, the logger's chain state is reset (genesis, seq=1)
     /// because the new file starts fresh.
+    ///
+    /// IMPORTANT: call only while holding the exclusive lock on the log file
+    /// (see `log()`). Renaming the file outside the lock races concurrent
+    /// writers into the renamed file.
     fn rotate(&mut self) -> Result<(), AuditError> {
+        self.rotate_locked()
+    }
+
+    /// Lock-held rotation. The caller must hold the exclusive file lock.
+    ///
+    /// Cross-rotation chain link: the last entry's `self_hash` of the rotated
+    /// file is recorded via a `CHAIN:<hash>` prev_hash on the first entry of
+    /// the new file, so deleting, reordering, or swapping rotated files is
+    /// detectable by `verify_chain` (see `verify_rotated_files`).
+    fn rotate_locked(&mut self) -> Result<(), AuditError> {
         if !self.path.exists() {
             return Ok(());
         }
+
+        // Capture the chain tip of the file being rotated, BEFORE the rename.
+        let chain_tip = read_chain_tail(&self.path)?;
 
         // Find the next available rotation number
         let dir = self.path.parent().unwrap_or(Path::new("."));
@@ -620,6 +815,13 @@ impl AuditLogger {
         // Reset chain state for the new file
         self.last_hash = "genesis".to_string();
         self.next_seq = 1;
+        // Remember the rotated file's chain tip — the first entry of the new
+        // file links to it via `CHAIN:<hash>` prev_hash.
+        self.pending_chain_link = if chain_tip.0 == "genesis" {
+            None
+        } else {
+            Some(chain_tip.0)
+        };
 
         Ok(())
     }
@@ -715,21 +917,45 @@ impl Default for RotationConfig {
 // ─── Internal helpers ──────────────────────────────────────────
 
 /// Read all entries from a JSONL file. Returns empty vec if file doesn't exist.
+///
+/// Crash tolerance: a single trailing line that fails to parse is treated as
+/// a partial write (crash mid-`writeln!`) and skipped. A malformed line
+/// anywhere BEFORE the end is real corruption and returns `AuditError::CorruptLine`.
 fn read_all_entries(path: &Path) -> Result<Vec<AuditEntry>, AuditError> {
     if !path.exists() {
         return Ok(Vec::new());
     }
     let file = File::open(path)?;
     let reader = BufReader::new(file);
-    let mut entries = Vec::new();
 
+    let mut lines: Vec<String> = Vec::new();
     for line in reader.lines() {
         let line = line?;
         if line.trim().is_empty() {
             continue;
         }
-        let entry: AuditEntry = serde_json::from_str(&line)?;
-        entries.push(entry);
+        lines.push(line);
+    }
+
+    // Drop a trailing partial line (crash mid-write). Only the LAST line
+    // qualifies — anything earlier is corruption, not a partial write.
+    if let Some(last) = lines.last() {
+        if serde_json::from_str::<AuditEntry>(last).is_err() {
+            lines.pop();
+        }
+    }
+
+    let mut entries = Vec::with_capacity(lines.len());
+    for (i, line) in lines.iter().enumerate() {
+        match serde_json::from_str::<AuditEntry>(line) {
+            Ok(entry) => entries.push(entry),
+            Err(e) => {
+                return Err(AuditError::CorruptLine {
+                    line_no: i + 1,
+                    detail: e.to_string(),
+                });
+            }
+        }
     }
 
     Ok(entries)
@@ -743,6 +969,71 @@ fn read_chain_tail(path: &Path) -> Result<(String, u64), AuditError> {
     }
     let last = entries.last().unwrap();
     Ok((last.self_hash.clone(), last.seq + 1))
+}
+
+/// Find the newest `*.rotated.*` sibling of `current` and return its chain tip
+/// (last entry's `self_hash`). Returns `None` if no rotated files exist.
+fn newest_rotated_tip(current: &Path) -> Option<String> {
+    let dir = current.parent().unwrap_or_else(|| Path::new("."));
+    let stem = current.file_stem()?.to_string_lossy();
+    let ext = current
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    newest_rotated_tip_from(dir, &stem, &ext)
+}
+
+/// Directory-scoped variant used by `verify_chain_with_rotations` and tests.
+fn newest_rotated_tip_from(dir: &Path, stem: &str, ext: &str) -> Option<String> {
+    list_rotated_files_oldest_first_inner(dir, stem, ext)
+        .last()
+        .and_then(|p| read_chain_tail(p).ok())
+        .map(|(hash, _)| hash)
+}
+
+/// All `*.rotated.*` siblings of `current`, oldest (by mtime) first.
+fn list_rotated_files_oldest_first(current: &Path) -> Vec<PathBuf> {
+    let dir = match current.parent() {
+        Some(d) => d,
+        None => return Vec::new(),
+    };
+    let stem = match current.file_stem() {
+        Some(s) => s.to_string_lossy().to_string(),
+        None => return Vec::new(),
+    };
+    let ext = current
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    list_rotated_files_oldest_first_inner(dir, &stem, &ext)
+}
+
+fn list_rotated_files_oldest_first_inner(dir: &Path, stem: &str, ext: &str) -> Vec<PathBuf> {
+    let pattern = format!("{}.rotated.", stem);
+    // (rotation_number, mtime, path) — order by the rotation NUMBER from the
+    // filename (stable, assigned monotonically at rotate time); mtime only as
+    // a tiebreak. mtime alone is wrong: rewriting a rotated file (restore,
+    // copy, AV scan) bumps it and reorders the chain.
+    let mut rotated: Vec<(u64, std::time::SystemTime, PathBuf)> = Vec::new();
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return rotated.into_iter().map(|(_, _, p)| p).collect();
+    };
+    for entry in rd.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with(&pattern) || !name.ends_with(ext) {
+            continue;
+        }
+        let num = name[pattern.len()..name.len() - ext.len()]
+            .parse::<u64>()
+            .unwrap_or(u64::MAX);
+        let mtime = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        rotated.push((num, mtime, entry.path()));
+    }
+    rotated.sort_by_key(|(n, t, _)| (*n, *t));
+    rotated.into_iter().map(|(_, _, p)| p).collect()
 }
 
 #[cfg(test)]
@@ -875,6 +1166,183 @@ mod tests {
             _ => panic!("expected ChainBroken error"),
         }
 
+        cleanup(&path);
+    }
+
+    // ── Crash / partial-write resilience ───────────────────
+
+    #[test]
+    fn trailing_partial_line_is_skipped_and_chain_continues() {
+        let path = temp_log_path();
+        cleanup(&path);
+        let mut logger = AuditLogger::open(&path).unwrap();
+        let sid = Uuid::new_v4();
+
+        logger.log_allow(sid, "agent", "fs:read", "/a").unwrap();
+        logger.log_allow(sid, "agent", "fs:read", "/b").unwrap();
+
+        // Simulate a crash mid-writeln: append a truncated JSON line.
+        {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            write!(f, "{{\"seq\":3,\"timestamp\":\"2026-09-02T0").unwrap();
+        }
+
+        // The reader must skip the partial tail and still see both entries.
+        let entries = logger.read_all().unwrap();
+        assert_eq!(entries.len(), 2, "partial tail line must be skipped");
+
+        // And the logger must continue the chain from entry #2, not genesis.
+        let e3 = logger.log_allow(sid, "agent", "fs:read", "/c").unwrap();
+        assert_eq!(e3.seq, 3);
+        let entries = logger.read_all().unwrap();
+        assert_eq!(entries.len(), 3);
+        assert!(logger.verify_chain().is_ok(), "chain must still verify");
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn corrupt_middle_line_is_reported_not_swallowed() {
+        let path = temp_log_path();
+        cleanup(&path);
+        let mut logger = AuditLogger::open(&path).unwrap();
+        let sid = Uuid::new_v4();
+
+        logger.log_allow(sid, "agent", "fs:read", "/a").unwrap();
+        logger.log_allow(sid, "agent", "fs:read", "/b").unwrap();
+        logger.log_allow(sid, "agent", "fs:read", "/c").unwrap();
+
+        // Corrupt the MIDDLE line (not the tail) — real corruption, must
+        // surface as CorruptLine, not silently drop entries.
+        let content = std::fs::read_to_string(&path).unwrap();
+        let mut lines: Vec<String> = content.lines().map(String::from).collect();
+        lines[1] = "{this is not json".to_string();
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+
+        let result = logger.read_all();
+        match result {
+            Err(AuditError::CorruptLine { line_no, .. }) => assert_eq!(line_no, 2),
+            other => panic!("expected CorruptLine, got {:?}", other.map(|_| ())),
+        }
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn log_after_partial_tail_links_to_last_valid_entry() {
+        let path = temp_log_path();
+        cleanup(&path);
+        let mut logger = AuditLogger::open(&path).unwrap();
+        let sid = Uuid::new_v4();
+
+        logger.log_allow(sid, "agent", "fs:read", "/a").unwrap();
+        let e2 = logger.log_allow(sid, "agent", "fs:read", "/b").unwrap();
+
+        // Crash mid-write leaves a partial line.
+        {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            write!(f, "{{\"seq\":3,\"prev_hash\":").unwrap();
+        }
+
+        // A NEW logger (fresh open) must NOT reset to genesis/seq=1 — it must
+        // link to the last VALID entry (#2), never restart the chain.
+        let mut reopened = AuditLogger::open(&path).unwrap();
+        let e3 = reopened.log_allow(sid, "agent", "fs:read", "/c").unwrap();
+        assert_eq!(e3.seq, 3, "seq must continue from last valid entry");
+        assert_eq!(
+            e3.prev_hash, e2.self_hash,
+            "must link to last valid entry, not genesis"
+        );
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn rotated_files_cannot_be_swapped_undetected() {
+        let path = temp_log_path();
+        cleanup(&path);
+
+        let config = RotationConfig {
+            max_size_bytes: 100,
+            max_age_days: 365,
+            max_files: 3,
+        };
+        let mut logger = AuditLogger::open_with_rotation(&path, config).unwrap();
+        let sid = Uuid::new_v4();
+
+        // Force a rotation, then write one entry into the fresh file.
+        for i in 0..20 {
+            logger
+                .log_allow(sid, "agent", "fs:read", &format!("/data/file_{}.txt", i))
+                .unwrap();
+        }
+        let first = logger.log_allow(sid, "agent", "fs:read", "/after").unwrap();
+        assert!(first.prev_hash.starts_with("CHAIN:"));
+
+        // Attacker swaps the rotated file's content (or it's from another
+        // machine) — the CHAIN: link on the fresh file's first entry must
+        // no longer match the rotated file's tip.
+        let dir = path.parent().unwrap();
+        let stem = path.file_stem().unwrap().to_string_lossy().to_string();
+        let ext = path
+            .extension()
+            .map(|e| format!(".{}", e.to_string_lossy()))
+            .unwrap_or_default();
+        let rotated: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| {
+                let n = e.file_name().to_string_lossy().to_string();
+                n.starts_with(&format!("{}.rotated.", stem)) && n.ends_with(&ext)
+            })
+            .collect();
+        assert!(!rotated.is_empty());
+        let rotated_path = rotated[0].path();
+        let original = std::fs::read_to_string(&rotated_path).unwrap();
+
+        // Tamper with a resource string inside the rotated file (keeping
+        // the fresh file untouched).
+        let tampered = original.replace("/data/file_", "/data/EVIL_");
+        assert_ne!(original, tampered, "tamper must change the file");
+        std::fs::write(&rotated_path, &tampered).unwrap();
+
+        // The cross-rotation check must detect that the rotated file no
+        // longer ends at the hash the fresh file links to.
+        let result = logger.verify_chain_with_rotations();
+        assert!(
+            result.is_err(),
+            "swapped/tampered rotated file must be detected"
+        );
+
+        // Restore: fresh-file chain still verifies against the intact file.
+        std::fs::write(&rotated_path, original).unwrap();
+        let restored = logger.verify_chain_with_rotations();
+        assert!(
+            restored.is_ok(),
+            "restored log must verify: {:?}",
+            restored.unwrap_err()
+        );
+
+        cleanup(&path);
+        let _ = std::fs::remove_file(&rotated_path);
+    }
+
+    #[test]
+    fn verify_chain_with_rotations_passes_without_rotations() {
+        let path = temp_log_path();
+        cleanup(&path);
+        let mut logger = AuditLogger::open(&path).unwrap();
+        let sid = Uuid::new_v4();
+        logger.log_allow(sid, "agent", "fs:read", "/a").unwrap();
+        assert!(logger.verify_chain_with_rotations().is_ok());
         cleanup(&path);
     }
 
@@ -1396,9 +1864,23 @@ mod tests {
             .log_allow(sid, "agent", "fs:read", "/new_file.txt")
             .unwrap();
         assert_eq!(entry.seq, 1, "new file should start at seq 1");
+        // Cross-rotation chain link: the first entry of the new file must
+        // reference the rotated file's chain tip (CHAIN:<hash>), NOT genesis —
+        // otherwise rotated files could be deleted/swapped undetected.
+        let rotated_tip = {
+            let dir = path.parent().unwrap();
+            let stem = path.file_stem().unwrap().to_string_lossy();
+            let ext = path
+                .extension()
+                .map(|e| format!(".{}", e.to_string_lossy()))
+                .unwrap_or_default();
+            newest_rotated_tip_from(dir, &stem, &ext)
+                .expect("rotated file should exist after rotation")
+        };
         assert_eq!(
-            entry.prev_hash, "genesis",
-            "new file should start with genesis"
+            entry.prev_hash,
+            format!("CHAIN:{}", rotated_tip),
+            "first entry of new file must link to the rotated file's chain tip"
         );
 
         // Clean up rotated files

@@ -2815,7 +2815,11 @@ fn cmd_audit(
     let logger = audit_log::AuditLogger::open_with_rotation(&log_path, rotation_config)?;
 
     if verify {
-        match logger.verify_chain() {
+        // Verify the current file's chain AND the cross-rotation link to the
+        // newest rotated file (deleting/reordering rotated files is detected).
+        let verify_result = logger.verify_chain_with_rotations();
+        let exit_broken = verify_result.is_err();
+        match verify_result {
             Ok(()) => {
                 if json {
                     let result = serde_json::json!({
@@ -2864,6 +2868,11 @@ fn cmd_audit(
             Err(e) => {
                 anyhow::bail!("Audit verification failed: {}", e);
             }
+        }
+        // SIEM/CI contract: --verify must exit NONZERO when the chain is
+        // broken — a monitoring wrapper must be able to trust the exit code.
+        if exit_broken {
+            std::process::exit(2);
         }
         return Ok(());
     }
@@ -2914,8 +2923,12 @@ fn cmd_audit(
         return Ok(());
     }
 
+    // --recent applies to the FILTERED set: `audit --agent foo --recent 5`
+    // shows the last 5 entries of foo, not all of them.
     let entries = if let Some(ref agent_name) = agent {
-        logger.filter_by_agent(agent_name)?
+        let filtered = logger.filter_by_agent(agent_name)?;
+        let start = filtered.len().saturating_sub(recent);
+        filtered[start..].to_vec()
     } else {
         logger.read_recent(recent)?
     };
