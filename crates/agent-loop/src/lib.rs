@@ -1,10 +1,7 @@
 use anyhow::{Context, Result};
 use console::style;
-use fs_guard::FsGuard;
-use network_control::NetworkGuard;
-use policy_engine::{PolicyDecision, PolicyEngine, PolicyRequest};
+use harness_core::{Harness, HarnessContext};
 use serde::{Deserialize, Serialize};
-use shared_types::{FsPermission, NetworkPolicy, PermissionSet};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -272,85 +269,6 @@ fn print_action(tool: &str, target: &str, allowed: bool, reason: &str) {
     std::thread::sleep(std::time::Duration::from_millis(400));
 }
 
-// ─── Tool execution (through real guards) ─────────────────────
-
-fn execute_read_file(path: &str, guard: &FsGuard) -> (bool, String, String) {
-    match guard.resolve(path) {
-        Ok(resolved) => match std::fs::read_to_string(&resolved) {
-            Ok(content) => (true, "within allowed roots".into(), content),
-            Err(e) => (false, format!("read error: {e}"), String::new()),
-        },
-        Err(e) => (false, format!("filesystem: {e}"), String::new()),
-    }
-}
-
-fn execute_write_file(path: &str, content: &str, guard: &FsGuard) -> (bool, String, String) {
-    match guard.resolve(path) {
-        Ok(resolved) => match std::fs::write(&resolved, content) {
-            Ok(()) => (
-                true,
-                "within allowed roots".into(),
-                "File written successfully".into(),
-            ),
-            Err(e) => (false, format!("write error: {e}"), String::new()),
-        },
-        Err(e) => (false, format!("filesystem: {e}"), String::new()),
-    }
-}
-
-fn execute_http_request(url: &str, _method: &str, guard: &NetworkGuard) -> (bool, String, String) {
-    match guard.check(url) {
-        Ok(()) => {
-            // URL is allowed — attempt real request, but we may be offline
-            // Return simulated response for demo purposes (the guard ran)
-            (
-                true,
-                "domain in allowlist".into(),
-                format!("HTTP 200 OK (simulated — {url} is allowlisted)"),
-            )
-        }
-        Err(e) => (false, format!("network: {e}"), String::new()),
-    }
-}
-
-fn execute_exec(command: &str, engine: &PolicyEngine) -> (bool, String, String) {
-    let perms = PermissionSet {
-        terminal: true,
-        filesystem: FsPermission::ReadWrite,
-        browser: false,
-        network: NetworkPolicy::Allowlist(vec![]),
-    };
-    let req = PolicyRequest {
-        action: "terminal:exec".into(),
-        resource: command.into(),
-        permissions: perms,
-    };
-    match engine.evaluate(req) {
-        PolicyDecision::Allow => {
-            // Use shell to handle pipes, paths, && — Windows uses cmd, Unix uses sh
-            #[cfg(windows)]
-            let (shell, flag) = ("cmd.exe", "/C");
-            #[cfg(not(windows))]
-            let (shell, flag) = ("sh", "-c");
-
-            let output = std::process::Command::new(shell)
-                .arg(flag)
-                .arg(command)
-                .output();
-            match output {
-                Ok(out) => {
-                    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-                    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-                    let combined = if stdout.is_empty() { stderr } else { stdout };
-                    (true, "terminal access granted".into(), combined)
-                }
-                Err(e) => (false, format!("exec error: {e}"), String::new()),
-            }
-        }
-        PolicyDecision::Deny(msg) => (false, format!("policy: {msg}"), String::new()),
-    }
-}
-
 // ─── The agent loop ───────────────────────────────────────────
 
 pub async fn run_agent_loop(config: AgentLoopConfig) -> Result<AgentLoopResult> {
@@ -358,10 +276,18 @@ pub async fn run_agent_loop(config: AgentLoopConfig) -> Result<AgentLoopResult> 
         .timeout(std::time::Duration::from_secs(60))
         .build()?;
 
-    // Initialize real guards
-    let fs_guard = FsGuard::new(vec![config.workspace.clone()]);
-    let net_guard = NetworkGuard::new(NetworkPolicy::Allowlist(config.network_allowlist.clone()));
-    let policy_engine = PolicyEngine::new();
+    // Microkernel: register builtin tool plugins. All capability logic
+    // (fs containment, network allowlist, exec policy) lives in the plugins;
+    // the loop itself only routes and records.
+    let mut harness = Harness::new(HarnessContext {
+        workspace: config.workspace.clone(),
+        network_allowlist: config.network_allowlist.clone(),
+        config: Default::default(),
+    });
+    harness.register_tool(std::sync::Arc::new(plugin_builtin_tools::FsPlugin));
+    harness.register_tool(std::sync::Arc::new(plugin_builtin_tools::NetworkPlugin));
+    harness.register_tool(std::sync::Arc::new(plugin_builtin_tools::ExecPlugin));
+    let harness = harness; // freeze (interior mutability not needed)
 
     let mut allowed: u32 = 0;
     let mut blocked: u32 = 0;
@@ -474,26 +400,12 @@ pub async fn run_agent_loop(config: AgentLoopConfig) -> Result<AgentLoopResult> 
             let tool_name = &tc.function.name;
             let args_str = serde_json::to_string(&args).unwrap_or_default();
 
-            let (is_allowed, reason, _output) = match tool_name.as_str() {
-                "read_file" => {
-                    let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                    execute_read_file(path, &fs_guard)
-                }
-                "write_file" => {
-                    let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                    let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
-                    execute_write_file(path, content, &fs_guard)
-                }
-                "http_request" => {
-                    let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                    let method = args.get("method").and_then(|v| v.as_str()).unwrap_or("GET");
-                    execute_http_request(url, method, &net_guard)
-                }
-                "exec" => {
-                    let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
-                    execute_exec(command, &policy_engine)
-                }
-                _ => (false, format!("unknown tool: {tool_name}"), String::new()),
+            let (is_allowed, reason, _output) = {
+                let outcome = harness.dispatch(harness_core::ToolCall {
+                    name: tool_name,
+                    args: &args,
+                })?;
+                (outcome.allowed, outcome.reason, outcome.output)
             };
 
             let target = extract_target(tool_name, &args);

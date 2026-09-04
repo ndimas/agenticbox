@@ -13,7 +13,6 @@ tokio = { version = "1.38", features = ["full"] }
 reqwest = { version = "0.12", features = ["json"] }
 tracing = "0.1"
 console = "0.15"
-fs-guard = { path = "../fs-guard" }
-network-control = { path = "../network-control" }
-policy-engine = { path = "../policy-engine" }
+harness-core = { path = "../harness-core" }
+plugin-builtin-tools = { path = "../plugin-builtin-tools" }
 shared-types = { path = "../shared-types" }
