@@ -638,18 +638,23 @@ impl AuditLogger {
 
             for (i, entry) in entries.iter().enumerate() {
                 if i == 0 && has_rotations {
-                    // First entry of a continued log must link to the
-                    // rotated file's chain tip.
+                    // First entry of a continued log normally links to the
+                    // rotated file's chain tip. EXCEPTION: if the file was
+                    // rotated while EMPTY, rotate_locked stores no pending
+                    // link and the fresh file starts at plain "genesis" —
+                    // accept that too, otherwise verify false-positives on
+                    // a perfectly valid empty-rotation log.
                     let tip = newest_rotated_tip(ctx).unwrap_or_else(|| "genesis".to_string());
-                    match entry.prev_hash.strip_prefix("CHAIN:") {
-                        Some(rest) if rest == tip => {}
-                        _ => {
-                            return Err(AuditError::ChainBroken {
-                                seq: entry.seq,
-                                expected: format!("CHAIN:{}", tip),
-                                actual: entry.prev_hash.clone(),
-                            });
-                        }
+                    let chain_ok = match entry.prev_hash.strip_prefix("CHAIN:") {
+                        Some(rest) if rest == tip && tip != "genesis" => true,
+                        _ => entry.prev_hash == "genesis" && tip == "genesis",
+                    };
+                    if !chain_ok {
+                        return Err(AuditError::ChainBroken {
+                            seq: entry.seq,
+                            expected: format!("CHAIN:{}", tip),
+                            actual: entry.prev_hash.clone(),
+                        });
                     }
                 } else {
                     if entry.prev_hash != expected_prev {
@@ -1895,6 +1900,48 @@ mod tests {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.starts_with(&pattern) {
                 let _ = std::fs::remove_file(entry.path());
+            }
+        }
+        cleanup(&path);
+    }
+
+    #[test]
+    fn verify_accepts_genesis_first_entry_after_empty_rotation() {
+        // Regression: rotate a log that has NO entries (rotate_now on a fresh
+        // logger). pending_chain_link stays None, so the first entry of the
+        // new file gets plain "genesis" — verify_chain_with_rotations must
+        // accept that instead of demanding CHAIN:<tip>.
+        let path = temp_log_path();
+        cleanup(&path);
+        let mut logger = AuditLogger::open(&path).unwrap();
+
+        // Rotate the empty file — creates audit.log.rotated.1 with 0 entries
+        let count = logger.rotate_now().unwrap();
+        assert_eq!(count, 0, "empty log rotates 0 entries");
+
+        // Now write the first entry of the fresh file
+        let sid = Uuid::new_v4();
+        let entry = logger
+            .log_allow(sid, "agent", "fs:read", "/after-empty-rotation")
+            .unwrap();
+        assert_eq!(entry.seq, 1);
+        assert_eq!(
+            entry.prev_hash, "genesis",
+            "empty rotation stores no pending link, so first entry starts at genesis"
+        );
+
+        // Verify must NOT false-positive chain-broken here
+        logger
+            .verify_chain_with_rotations()
+            .expect("verify must accept genesis first entry after empty rotation");
+
+        // Cleanup rotated files
+        let dir = path.parent().unwrap();
+        let stem = path.file_stem().unwrap().to_string_lossy();
+        let pattern = format!("{}.rotated.", stem);
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            if e.file_name().to_string_lossy().starts_with(&pattern) {
+                let _ = std::fs::remove_file(e.path());
             }
         }
         cleanup(&path);

@@ -2728,8 +2728,17 @@ fn init_audit_logger() -> audit_log::AuditLogger {
         Ok(logger) => logger,
         Err(e) => {
             eprintln!("[audit-log] Warning: log corrupted ({}), starting fresh", e);
-            let backup = audit_path.with_extension("log.corrupt");
+            // Unique backup name: a fixed name would be silently overwritten
+            // by a SECOND corruption, destroying the earlier evidence.
+            let backup = audit_path.with_extension(format!(
+                "log.corrupt.{}",
+                chrono::Utc::now().format("%Y%m%d-%H%M%S")
+            ));
             let _ = std::fs::rename(&audit_path, &backup);
+            eprintln!(
+                "[audit-log] Corrupted log preserved as {}",
+                backup.display()
+            );
             audit_log::AuditLogger::open(&audit_path)
                 .expect("Failed to create fresh audit log after backup")
         }
@@ -2757,6 +2766,21 @@ fn audit_log_decision(
         audit_decision,
         None,
     );
+}
+
+/// Escape ANSI/CTL characters from agent-controlled audit fields before
+/// printing to the terminal — an agent can put escape sequences in
+/// agent_name/action/resource/reason to spoof the audit display.
+fn sanitize_display(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_control() {
+                format!("\\x{:02x}", c as u32)
+            } else {
+                c.to_string()
+            }
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)] // CLI flags mirror clap args 1:1
@@ -2979,16 +3003,16 @@ fn cmd_audit(
                 "{} {} {} {} {} {}",
                 console::style(format!("#{}", entry.seq)).dim(),
                 console::style(entry.timestamp.format("%H:%M:%S").to_string()).cyan(),
-                console::style(&entry.agent_name).green(),
-                console::style(&entry.action).yellow(),
+                console::style(sanitize_display(&entry.agent_name)).green(),
+                console::style(sanitize_display(&entry.action)).yellow(),
                 decision_str,
-                console::style(reason).dim(),
+                console::style(sanitize_display(reason)).dim(),
             );
             if !entry.resource.is_empty() {
                 println!(
                     "  {} {}",
                     console::style("resource:").dim(),
-                    console::style(&entry.resource).dim()
+                    console::style(sanitize_display(&entry.resource)).dim()
                 );
             }
         }
