@@ -1,0 +1,15 @@
+[package]
+name = "plugin-builtin-tools"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Builtin AgenticBox tool plugins: filesystem, network, exec"
+
+[dependencies]
+serde_json = "1.0"
+anyhow = "1.0"
+fs-guard = { path = "../fs-guard" }
+network-control = { path = "../network-control" }
+policy-engine = { path = "../policy-engine" }
+shared-types = { path = "../shared-types" }
+harness-core = { path = "../harness-core" }
